@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from platform.models.orders import SignalSide
 
@@ -25,6 +26,9 @@ class CompletedTrade:
     net_pnl: float
     fees_paid: float
     slippage_paid: float
+    entry_reason: str = ""
+    exit_reason: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -160,4 +164,3 @@ def _compute_exposure_time_pct(trades: list[CompletedTrade], equity_curve: list[
 
     exposure_seconds = sum((trade.exit_ts - trade.entry_ts).total_seconds() for trade in trades)
     return max(0.0, min(1.0, exposure_seconds / total_span))
-

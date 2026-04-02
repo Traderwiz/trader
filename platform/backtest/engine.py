@@ -39,6 +39,15 @@ class _OpenPosition:
     quantity: float
     fees_paid: float
     slippage_paid: float
+    entry_reason: str
+    entry_metadata: dict[str, object]
+
+
+@dataclass(frozen=True)
+class _PendingExecution:
+    """A signal queued for execution on the next bar open."""
+
+    signal: SignalIntent
 
 
 class BacktestEngine:
@@ -84,6 +93,7 @@ class BacktestEngine:
         frontier = FrontierClock()
         history = HistoryView(bars, frontier)
         pending_signals: list[SignalIntent] = []
+        pending_open_executions: list[_PendingExecution] = []
         recorded_signals: list[SignalIntent] = []
         suppressed_signals: list[RegimeSuppressionDecision] = []
         strategy.bind(history, emit=lambda intent: pending_signals.append(intent))
@@ -98,14 +108,23 @@ class BacktestEngine:
             frontier.advance(index, bar.ts_utc)
             if regime_detector is not None:
                 regime_detector.update(bar)
-            try:
-                strategy.on_bar(bar)
-            except LookAheadBiasError:
-                raise
-            except Exception as exc:
-                if isinstance(exc, LookAheadBiasError):
-                    raise
-                raise
+
+            if pending_open_executions:
+                current_open_executions = pending_open_executions
+                pending_open_executions = []
+                for pending in current_open_executions:
+                    open_position, cash, closed_trade = self._apply_signal(
+                        signal=pending.signal,
+                        bar=bar,
+                        instrument=instrument,
+                        cash=cash,
+                        open_position=open_position,
+                        reference_price=bar.open,
+                    )
+                    if closed_trade is not None:
+                        trades.append(closed_trade)
+
+            strategy.on_bar(bar)
 
             valid_signals = []
             while pending_signals:
@@ -125,12 +144,19 @@ class BacktestEngine:
                     if suppression is not None:
                         suppressed_signals.append(suppression)
                         continue
+
+                if self._signal_execution_timing(signal) == "next_open":
+                    if index + 1 < len(bars):
+                        pending_open_executions.append(_PendingExecution(signal=signal))
+                    continue
+
                 open_position, cash, closed_trade = self._apply_signal(
                     signal=signal,
                     bar=bar,
                     instrument=instrument,
                     cash=cash,
                     open_position=open_position,
+                    reference_price=self._signal_reference_price(signal),
                 )
                 if closed_trade is not None:
                     trades.append(closed_trade)
@@ -149,9 +175,9 @@ class BacktestEngine:
                 instrument=instrument,
                 cash=cash,
                 open_position=open_position,
+                exit_reason="end_of_data",
             )
-            if closed_trade is not None:
-                trades.append(closed_trade)
+            trades.append(closed_trade)
             equity_curve[-1] = EquityPoint(ts_utc=last_bar.ts_utc, equity=cash)
 
         metrics = compute_backtest_metrics(trades=trades, equity_curve=equity_curve)
@@ -171,6 +197,7 @@ class BacktestEngine:
         instrument: Instrument,
         cash: float,
         open_position: _OpenPosition | None,
+        reference_price: float | None = None,
     ) -> tuple[_OpenPosition | None, float, CompletedTrade | None]:
         """Apply one strategy intent to the portfolio state."""
 
@@ -181,6 +208,8 @@ class BacktestEngine:
                 instrument=instrument,
                 cash=cash,
                 open_position=open_position,
+                reference_price=reference_price,
+                exit_reason=signal.reason,
             )
 
         if signal.side is SignalSide.FLAT:
@@ -199,6 +228,7 @@ class BacktestEngine:
                 bar=bar,
                 side=signal.side,
                 quantity=quantity,
+                reference_price=reference_price,
             )
             cash -= fill.commission_paid
             open_position = _OpenPosition(
@@ -208,6 +238,8 @@ class BacktestEngine:
                 quantity=quantity,
                 fees_paid=fill.commission_paid,
                 slippage_paid=fill.slippage_paid,
+                entry_reason=signal.reason,
+                entry_metadata=dict(signal.metadata),
             )
 
         return open_position, cash, closed_trade
@@ -219,6 +251,8 @@ class BacktestEngine:
         instrument: Instrument,
         cash: float,
         open_position: _OpenPosition,
+        reference_price: float | None = None,
+        exit_reason: str = "",
     ) -> tuple[None, float, CompletedTrade]:
         """Close an open position using the current bar."""
 
@@ -228,6 +262,7 @@ class BacktestEngine:
             bar=bar,
             side=exit_side,
             quantity=open_position.quantity,
+            reference_price=reference_price,
         )
         direction = 1.0 if open_position.side is SignalSide.LONG else -1.0
         gross_pnl = (
@@ -253,6 +288,9 @@ class BacktestEngine:
             net_pnl=net_pnl - open_position.fees_paid,
             fees_paid=total_fees,
             slippage_paid=total_slippage,
+            entry_reason=open_position.entry_reason,
+            exit_reason=exit_reason,
+            metadata=dict(open_position.entry_metadata),
         )
         return None, cash, trade
 
@@ -275,3 +313,16 @@ class BacktestEngine:
             * instrument.point_value
             * open_position.quantity
         )
+
+    @staticmethod
+    def _signal_execution_timing(signal: SignalIntent) -> str:
+        timing = str(signal.metadata.get("execution_timing", "current_bar"))
+        if timing not in {"current_bar", "next_open"}:
+            raise ValueError(f"Unsupported execution_timing: {timing}")
+        return timing
+
+    @staticmethod
+    def _signal_reference_price(signal: SignalIntent) -> float | None:
+        if "reference_price" not in signal.metadata:
+            return None
+        return float(signal.metadata["reference_price"])

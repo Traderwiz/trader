@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 
 from platform.models.instruments import Instrument
 from platform.models.market_data import BarEvent
@@ -89,17 +88,22 @@ class CostModelBundle:
         side: SignalSide,
         quantity: float,
         session: str = "default",
+        reference_price: float | None = None,
     ) -> FillCostBreakdown:
         """Estimate the fill price and costs for a simulated marketable fill."""
 
         if side is SignalSide.FLAT:
             raise ValueError("FLAT is not a valid execution side.")
 
+        base_price = float(reference_price) if reference_price is not None else bar.close
+        if base_price <= 0:
+            raise ValueError("reference price must be positive.")
+
         spread_ticks = self.spread_model.half_spread_ticks(instrument, session)
         slippage_ticks = self.slippage_model.slippage_ticks(instrument, quantity=quantity, bar_volume=bar.volume)
         adverse_ticks = spread_ticks + slippage_ticks
         adverse_price = adverse_ticks * instrument.price_increment
-        signed_price = bar.close + adverse_price if side is SignalSide.LONG else bar.close - adverse_price
+        signed_price = base_price + adverse_price if side is SignalSide.LONG else base_price - adverse_price
 
         return FillCostBreakdown(
             fill_price=signed_price,
@@ -118,4 +122,3 @@ def default_cost_model_bundle() -> CostModelBundle:
         slippage_model=SlippageModel(),
         margin_model=MarginModel(),
     )
-

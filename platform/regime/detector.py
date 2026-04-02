@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from platform.models import AuditRecord, BarEvent, RegimeState, RegimeSuppressionDecision, SignalIntent
+from platform.models.orders import SignalSide
 from platform.persistence.audit_log import AuditLogWriter
 from platform.persistence.repositories import RegimeStateRepository
 from platform.regime.classifiers import ClassificationThresholds, classify_regime
@@ -50,6 +51,9 @@ class RegimeDetector:
 
     def suppress_signal(self, signal: SignalIntent, strategy) -> RegimeSuppressionDecision | None:
         """Return an auditable suppression decision when the active regime is disallowed."""
+
+        if signal.side is SignalSide.FLAT:
+            return None
 
         timeframe = getattr(strategy, "bar_size", "")
         state = self.current_state(signal.instrument_id, timeframe)
