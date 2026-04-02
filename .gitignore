@@ -10,3 +10,4 @@ var/reports/
 *.db
 *.db-wal
 *.db-shm
+var/
