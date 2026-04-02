@@ -1,0 +1,12 @@
+service:
+  name: traderd
+
+persistence:
+  sqlite_path: var/state/control_plane.db
+  audit_root: var/audit
+
+operator_api:
+  host: 127.0.0.1
+  port: 8080
+
+secrets: {}
