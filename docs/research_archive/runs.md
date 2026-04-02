@@ -46,3 +46,13 @@ This file is the chronological index of completed research runs. Dates are liste
 - Key result: Implementation reproduced the research profile with 233 trades, 56.7% win rate, Sharpe 0.706, max drawdown 6.2%, PF 1.718, and implementation OOS PF 1.688.
 - Outcome: Promoted to PAPER on 2026-04-02 after the Sharpe gate revision from 1.0 to 0.7 was approved.
 - Link to committed artifacts: [research_decision_log.md](../research_decision_log.md), [runs.md](runs.md). Local report outputs existed under `var/reports/mes_rsi_trend_pullback/1.0.0/`, but the implementation files and reports were not git-tracked as of 2026-04-02.
+
+## Run 006
+
+- Date: 2026-04-02
+- Description: Paper runtime wiring for `mes_rsi_trend_pullback`, including PAPER-stage promotion metadata, traderd-native daily bar delivery, Telegram signal alerts, strategy status/trade operator endpoints, and daily scheduling on the bot box.
+- What was built: Persisted strategy runtime state and paper trade logs; extended the lifecycle/registry promotion bundle metadata; added a traderd-native `StrategyRuntimeService` plus `DailyBarRunner`; added a PAPER promotion script and operator-triggered daily runner script; extended the operator API with strategy status/trades and daily-run endpoints; updated the IBKR adapter for daily bars, quotes, execution intent correlation, and single-thread broker access; wired Telegram signal alerts and cron scheduling for the daily runner.
+- Files created: `platform/models/strategy_runtime.py`, `platform/strategy/runtime.py`, `platform/strategy/daily_runner.py`, `scripts/register_mes_rsi_trend_pullback_paper.py`, `scripts/run_daily_bars.py`, `tests/unit/test_ibkr_adapter_threading.py`, `tests/unit/test_strategy_runtime_service.py`.
+- Files modified: `config/service.yaml`, `platform/bootstrap.py`, `platform/broker/ibkr.py`, `platform/broker/simulator.py`, `platform/models/__init__.py`, `platform/models/strategy_registry.py`, `platform/operator/api.py`, `platform/operator/commands.py`, `platform/persistence/repositories.py`, `platform/persistence/sqlite.py`, `platform/strategy/lifecycle.py`, `platform/strategy/registry.py`, `platform/strategy/selector.py`, `tests/unit/test_operator_strategy_api.py`, `tests/unit/test_strategy_lifecycle.py`.
+- Verification: Full automated suite passed on 2026-04-02 via `/home/gabernardi/trader/.venv/bin/pytest tests/unit tests/integration tests/scenario -v` (62 passed). An operator-triggered paper daily-bar run also completed successfully against traderd and the IBKR paper gateway, processing the completed MES daily bar dated 2026-04-03T04:00:00Z with clean reconciliation and no signal emitted.
+- Commit hash: `043c7b3fe15a3e8492ab3630f93a8e90c884dff6`
