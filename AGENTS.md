@@ -142,3 +142,30 @@ The operator is Greg. Greg is the architect and decision-maker. Codex is the imp
 - Paper-to-live promotion requires: 20+ paper sessions, zero reconciliation mismatches, drift within tolerance, and operator sign-off.
 - Live mode requires an explicit config change and a non-empty account ID.
 - Never set `mode: live` without operator approval.
+
+## Critical environment rules — read this first
+
+This project runs exclusively on the Linux bot box openclaw-bot, NOT on the local Windows machine.
+
+Before running any command, verify you are on the correct machine:
+```
+ssh openclaw-bot
+pwd  # must show /home/gabernardi
+```
+
+All paths are on the bot box:
+- Project root: /home/gabernardi/trader/
+- Python: /home/gabernardi/trader/.venv/bin/python
+- Pytest: /home/gabernardi/trader/.venv/bin/pytest
+- AGENTS.md: /home/gabernardi/trader/AGENTS.md
+- Platform code: /home/gabernardi/trader/platform/
+- Strategy code: /home/gabernardi/trader/strategies/
+- MES data: /home/gabernardi/trader/var/data/MES/
+- Reports: /home/gabernardi/trader/var/reports/
+- Scripts: /home/gabernardi/trader/scripts/
+- Config: /home/gabernardi/trader/config/
+- Docs: /home/gabernardi/trader/docs/
+- Git remote: git@github.com:Traderwiz/trader.git
+
+If you cannot find a file locally, it is because you are on the wrong machine.
+Do not search the Windows filesystem. Do not use WSL. SSH to openclaw-bot.
