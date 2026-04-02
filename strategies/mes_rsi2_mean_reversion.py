@@ -18,8 +18,8 @@ class MESRSI2MeanReversionStrategy(Strategy):
     bar_size = "1D"
     warmup_bars = 200
     supported_regimes = ("ranging",)
-    strategy_version = "1.0.0"
-    version = "1.0.0"
+    strategy_version = "1.1.0"
+    version = "1.1.0"
     strategy_name = "mes_rsi2_mean_reversion"
 
     def __init__(self) -> None:
@@ -85,11 +85,11 @@ class MESRSI2MeanReversionStrategy(Strategy):
 
         if self.pending_entry:
             return
-        if adx_value > 20.0:
+        if adx_value > 25.0:
             return
         if bar.close <= sma_value:
             return
-        if rsi_value >= 10.0:
+        if rsi_value >= 15.0:
             return
 
         self.pending_entry = True

@@ -31,7 +31,7 @@ class StubIndicator:
         return self._values.pop(0)
 
 
-def test_entry_requires_price_above_sma_and_adx_at_or_below_20() -> None:
+def test_entry_requires_price_above_sma_and_adx_at_or_below_25() -> None:
     strategy = MESRSI2MeanReversionStrategy()
     strategy.initialize()
     history = DummyHistory(count=200)
@@ -40,7 +40,7 @@ def test_entry_requires_price_above_sma_and_adx_at_or_below_20() -> None:
 
     strategy.rsi_2 = StubIndicator([5.0, 5.0])
     strategy.sma_200 = StubIndicator([100.0, 100.0])
-    strategy.adx_14 = StubIndicator([21.0, 15.0])
+    strategy.adx_14 = StubIndicator([26.0, 15.0])
 
     high_adx_bar = _bar(close=105.0)
     strategy.on_bar(high_adx_bar)

@@ -34,10 +34,10 @@ def main() -> None:
 
     checks = {
         "no_overlapping_positions": _no_overlaps(result),
-        "all_entries_adx_le_20": all(float(trade.metadata.get("signal_adx_14", 999.0)) <= 20.0 for trade in result.trades),
+        "all_entries_adx_le_25": all(float(trade.metadata.get("signal_adx_14", 999.0)) <= 25.0 for trade in result.trades),
         "all_entries_above_sma_200": all(float(trade.metadata.get("signal_close", 0.0)) > float(trade.metadata.get("signal_sma_200", 0.0)) for trade in result.trades),
         "all_exit_reasons_valid": all(trade.exit_reason in ALLOWED_EXIT_REASONS for trade in result.trades),
-        "trade_count_gte_50": result.metrics.trade_count >= 50,
+        "trade_count_gte_100": result.metrics.trade_count >= 100,
     }
 
     print("MES RSI(2) Mean Reversion Backtest")

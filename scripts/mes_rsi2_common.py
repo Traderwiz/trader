@@ -26,7 +26,7 @@ from strategies.mes_rsi2_mean_reversion import MESRSI2MeanReversionStrategy
 
 UTC = timezone.utc
 STRATEGY_ID = "mes_rsi2_mean_reversion"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 FULL_START = datetime(2000, 9, 18, tzinfo=UTC)
 REPORT_DIR = PROJECT_ROOT / "var" / "reports" / STRATEGY_ID / VERSION
 TRADE_LOG_PATH = REPORT_DIR / "trade_log.csv"
