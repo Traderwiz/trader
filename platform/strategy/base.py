@@ -15,10 +15,12 @@ class Strategy(ABC):
     """Backtesting.py-style strategy contract constrained to canonical signals."""
 
     supported_regimes: tuple[str, ...] = ()
+    hard_disallowed_regimes: tuple[str, ...] = ()
     instrument_id: str = ""
     bar_size: str = ""
     warmup_bars: int = 0
     strategy_version: str = "1.0.0"
+    volatility_cap: float | None = None
 
     def __init__(self) -> None:
         self.history: HistoryView | None = None
@@ -56,4 +58,3 @@ class Strategy(ABC):
         if self._emit is None:
             raise RuntimeError("Strategy is not bound to an execution context.")
         self._emit(intent)
-

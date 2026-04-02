@@ -77,6 +77,49 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX IF NOT EXISTS idx_audit_log_index_ts_utc ON audit_log_index (ts_utc)",
         ),
     ),
+    Migration(
+        version=2,
+        name="create_strategy_lifecycle_tables",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS strategy_registry (
+                strategy_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                description TEXT NOT NULL,
+                parameters_json TEXT NOT NULL,
+                allowed_instruments_json TEXT NOT NULL,
+                bar_sizes_json TEXT NOT NULL,
+                required_data_json TEXT NOT NULL,
+                supported_regimes_json TEXT NOT NULL,
+                hard_disallowed_regimes_json TEXT NOT NULL,
+                volatility_cap REAL,
+                current_stage TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (strategy_id, version)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS strategy_promotion_bundles (
+                strategy_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                bundle_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (strategy_id, version)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS regime_state (
+                instrument_id TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                ts_utc TEXT NOT NULL,
+                state_json TEXT NOT NULL,
+                PRIMARY KEY (instrument_id, timeframe)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_strategy_registry_stage ON strategy_registry (current_stage)",
+        ),
+    ),
 )
 
 

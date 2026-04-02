@@ -12,9 +12,10 @@ from platform.models import RuntimeState
 from platform.operator.api import OperatorAPIServer
 from platform.operator.commands import OperatorCommandService
 from platform.persistence.audit_log import AuditLogWriter
-from platform.persistence.repositories import AuditLogIndexRepository, ControlStateRepository
+from platform.persistence.repositories import AuditLogIndexRepository, ControlStateRepository, StrategyRegistryRepository
 from platform.persistence.sqlite import SQLiteOperationalStore
 from platform.state_machine import RuntimeStateMachine
+from platform.strategy.lifecycle import StrategyLifecycleManager
 
 
 @dataclass
@@ -25,6 +26,7 @@ class BootstrapContext:
     run_id: str
     store: SQLiteOperationalStore
     control_state_repository: ControlStateRepository
+    strategy_registry_repository: StrategyRegistryRepository
     audit_log: AuditLogWriter
     state_machine: RuntimeStateMachine
     command_service: OperatorCommandService
@@ -56,6 +58,7 @@ def bootstrap_service(config_path: str | Path = "config/service.yaml") -> Bootst
     store.initialize()
 
     control_state_repository = ControlStateRepository(store)
+    strategy_registry_repository = StrategyRegistryRepository(store)
     audit_index_repository = AuditLogIndexRepository(store)
     audit_log = AuditLogWriter(
         audit_root=config.persistence.audit_root,
@@ -76,6 +79,8 @@ def bootstrap_service(config_path: str | Path = "config/service.yaml") -> Bootst
         control_state_repository=control_state_repository,
         audit_log=audit_log,
         reconciliation_token="",
+        strategy_registry_repository=strategy_registry_repository,
+        lifecycle_manager=StrategyLifecycleManager(),
     )
     command_service.rotate_reconciliation_token()
 
@@ -106,6 +111,7 @@ def bootstrap_service(config_path: str | Path = "config/service.yaml") -> Bootst
         run_id=run_id,
         store=store,
         control_state_repository=control_state_repository,
+        strategy_registry_repository=strategy_registry_repository,
         audit_log=audit_log,
         state_machine=state_machine,
         command_service=command_service,

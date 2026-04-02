@@ -9,7 +9,9 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from platform.models import StrategyStage
 from platform.operator.commands import OperatorCommandError, OperatorCommandService
+from platform.strategy.lifecycle import LifecycleError
 
 
 @dataclass
@@ -62,6 +64,23 @@ class OperatorAPIServer:
                         return
                     self._write_json(HTTPStatus.OK, {"entries": command_service.get_recent_audit(limit=limit)})
                     return
+                if parsed.path == "/strategy/list":
+                    self._write_json(HTTPStatus.OK, {"strategies": command_service.list_strategies()})
+                    return
+                if parsed.path.startswith("/strategy/") and parsed.path.endswith("/bundle"):
+                    strategy_id = parsed.path[len("/strategy/") : -len("/bundle")].strip("/")
+                    if not strategy_id:
+                        self._write_json(HTTPStatus.BAD_REQUEST, {"error": "strategy id is required"})
+                        return
+                    version = parse_qs(parsed.query).get("version", [""])[0].strip()
+                    if not version:
+                        self._write_json(HTTPStatus.BAD_REQUEST, {"error": "version query parameter is required"})
+                        return
+                    self._write_json(
+                        HTTPStatus.OK,
+                        {"bundle": command_service.get_strategy_bundle(strategy_id=strategy_id, version=version)},
+                    )
+                    return
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "endpoint not found"})
 
             def do_POST(self) -> None:  # noqa: N802
@@ -94,10 +113,34 @@ class OperatorAPIServer:
                         )
                         self._write_json(HTTPStatus.OK, result)
                         return
+                    if parsed.path == "/strategy/promote":
+                        issued_by = _required_non_empty_string(body, "issued_by")
+                        strategy_id = _required_non_empty_string(body, "strategy_id")
+                        version = _required_non_empty_string(body, "version")
+                        result = command_service.promote_strategy(
+                            strategy_id=strategy_id,
+                            version=version,
+                            issued_by=issued_by,
+                        )
+                        self._write_json(HTTPStatus.OK, result)
+                        return
+                    if parsed.path == "/strategy/demote":
+                        issued_by = _required_non_empty_string(body, "issued_by")
+                        strategy_id = _required_non_empty_string(body, "strategy_id")
+                        version = _required_non_empty_string(body, "version")
+                        target_stage = StrategyStage(_required_non_empty_string(body, "target_stage").upper())
+                        result = command_service.demote_strategy(
+                            strategy_id=strategy_id,
+                            version=version,
+                            target_stage=target_stage,
+                            issued_by=issued_by,
+                        )
+                        self._write_json(HTTPStatus.OK, result)
+                        return
                     self._write_json(HTTPStatus.NOT_FOUND, {"error": "endpoint not found"})
                 except ValueError as exc:
                     self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-                except OperatorCommandError as exc:
+                except (LifecycleError, OperatorCommandError) as exc:
                     self._write_json(HTTPStatus.CONFLICT, {"error": str(exc)})
                 except Exception as exc:  # pragma: no cover
                     self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})

@@ -12,7 +12,9 @@ from platform.data.catalog import InstrumentCatalog
 from platform.data.parquet_store import ParquetStore
 from platform.models.instruments import Instrument
 from platform.models.market_data import BarEvent
+from platform.models.regime import RegimeSuppressionDecision
 from platform.models.orders import SignalIntent, SignalSide
+from platform.regime.detector import RegimeDetector
 from platform.strategy.base import Strategy
 
 
@@ -24,6 +26,7 @@ class BacktestResult:
     trades: list[CompletedTrade]
     equity_curve: list[EquityPoint]
     signals: list[SignalIntent]
+    suppressed_signals: list[RegimeSuppressionDecision]
 
 
 @dataclass
@@ -53,7 +56,13 @@ class BacktestEngine:
         self.cost_models = cost_models or default_cost_model_bundle()
         self.initial_capital = initial_capital
 
-    def run(self, strategy: Strategy, start: datetime, end: datetime) -> BacktestResult:
+    def run(
+        self,
+        strategy: Strategy,
+        start: datetime,
+        end: datetime,
+        regime_detector: RegimeDetector | None = None,
+    ) -> BacktestResult:
         """Execute a strategy against historical bars loaded from Parquet."""
 
         if not strategy.instrument_id.strip():
@@ -76,6 +85,7 @@ class BacktestEngine:
         history = HistoryView(bars, frontier)
         pending_signals: list[SignalIntent] = []
         recorded_signals: list[SignalIntent] = []
+        suppressed_signals: list[RegimeSuppressionDecision] = []
         strategy.bind(history, emit=lambda intent: pending_signals.append(intent))
         strategy.initialize()
 
@@ -86,6 +96,8 @@ class BacktestEngine:
 
         for index, bar in enumerate(bars):
             frontier.advance(index, bar.ts_utc)
+            if regime_detector is not None:
+                regime_detector.update(bar)
             try:
                 strategy.on_bar(bar)
             except LookAheadBiasError:
@@ -108,6 +120,11 @@ class BacktestEngine:
                 recorded_signals.append(signal)
 
             for signal in valid_signals:
+                if regime_detector is not None:
+                    suppression = regime_detector.suppress_signal(signal, strategy)
+                    if suppression is not None:
+                        suppressed_signals.append(suppression)
+                        continue
                 open_position, cash, closed_trade = self._apply_signal(
                     signal=signal,
                     bar=bar,
@@ -138,7 +155,13 @@ class BacktestEngine:
             equity_curve[-1] = EquityPoint(ts_utc=last_bar.ts_utc, equity=cash)
 
         metrics = compute_backtest_metrics(trades=trades, equity_curve=equity_curve)
-        return BacktestResult(metrics=metrics, trades=trades, equity_curve=equity_curve, signals=recorded_signals)
+        return BacktestResult(
+            metrics=metrics,
+            trades=trades,
+            equity_curve=equity_curve,
+            signals=recorded_signals,
+            suppressed_signals=suppressed_signals,
+        )
 
     def _apply_signal(
         self,
@@ -252,4 +275,3 @@ class BacktestEngine:
             * instrument.point_value
             * open_position.quantity
         )
-
