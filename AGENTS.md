@@ -169,3 +169,21 @@ All paths are on the bot box:
 
 If you cannot find a file locally, it is because you are on the wrong machine.
 Do not search the Windows filesystem. Do not use WSL. SSH to openclaw-bot.
+
+## Strategy Research Status
+
+Last updated: 2026-04-02
+
+Promoted strategy: mes_rsi_trend_pullback v1.0.0
+Stage: PAPER
+Key parameters: rsi_period=2, rsi_entry=25, rsi_exit=75, trend_period=100 (SMA), adx_min=20, stop=1%, max_hold=10d
+
+Research archive: docs/research_archive/
+Decision log: docs/research_decision_log.md
+Full research summary: docs/strategy_research_summary.md
+
+Before starting any new strategy research:
+1. Read docs/research_decision_log.md to understand what has been tried
+2. Read docs/research_archive/hypotheses.md to avoid repeating refuted hypotheses
+3. Read docs/research_archive/runs.md to understand the current research state
+4. Check docs/research_archive/parameter_sweeps.md before testing parameter ranges already covered
