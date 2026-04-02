@@ -1,0 +1,58 @@
+instruments:
+  - instrument_id: MES
+    broker_symbol: MES
+    asset_class: FUTURES
+    venue: CME
+    currency: USD
+    multiplier: 5
+    point_value: 5
+    price_increment: 0.25
+    quantity_increment: 1
+    min_quantity: 1
+    session_calendar: CME_EQUITY
+    margin_profile:
+      intraday_initial: 75.0
+      intraday_maintenance: 50.0
+      overnight_initial: 1460.0
+      overnight_maintenance: 1325.0
+    cost_profile:
+      commission_per_side: 0.62
+      spread_half_ticks:
+        default: 0.5
+        regular: 0.5
+        volatile: 1.0
+      minimum_slippage_ticks: 1.0
+      additional_impact_per_unit: 0.0
+    market_data_profile:
+      default_bar_size: 1m
+      timezone: UTC
+      history_source: MES
+  - instrument_id: EURUSD
+    broker_symbol: EUR.USD
+    asset_class: FOREX
+    venue: IDEALPRO
+    currency: USD
+    multiplier: 1000
+    point_value: 1
+    price_increment: 0.0001
+    quantity_increment: 1000
+    min_quantity: 1000
+    session_calendar: FX_24X5
+    margin_profile:
+      intraday_initial: 33.0
+      intraday_maintenance: 33.0
+      overnight_initial: 33.0
+      overnight_maintenance: 33.0
+    cost_profile:
+      commission_per_side: 0.20
+      spread_half_ticks:
+        default: 0.25
+        regular: 0.25
+        volatile: 0.5
+      minimum_slippage_ticks: 1.0
+      additional_impact_per_unit: 0.0
+    market_data_profile:
+      default_bar_size: 1m
+      timezone: UTC
+      history_source: EURUSD
+
