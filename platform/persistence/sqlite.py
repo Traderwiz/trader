@@ -120,6 +120,52 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX IF NOT EXISTS idx_strategy_registry_stage ON strategy_registry (current_stage)",
         ),
     ),
+    Migration(
+        version=3,
+        name="create_execution_runtime_tables",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS order_intents (
+                intent_id TEXT PRIMARY KEY,
+                strategy_id TEXT NOT NULL,
+                strategy_version TEXT NOT NULL,
+                instrument_id TEXT NOT NULL,
+                side TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                order_type TEXT NOT NULL,
+                limit_price REAL,
+                reduce_only INTEGER NOT NULL CHECK (reduce_only IN (0, 1)),
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                submitted_at TEXT,
+                broker_order_id TEXT
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_order_intents_status ON order_intents (status)",
+            """
+            CREATE TABLE IF NOT EXISTS session_pnl_state (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                session_start_utc TEXT,
+                session_start_nlv REAL,
+                realized_pnl REAL NOT NULL,
+                unrealized_pnl REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            INSERT INTO session_pnl_state (
+                singleton_id,
+                session_start_utc,
+                session_start_nlv,
+                realized_pnl,
+                unrealized_pnl,
+                updated_at
+            )
+            VALUES (1, NULL, NULL, 0.0, 0.0, '1970-01-01T00:00:00Z')
+            ON CONFLICT(singleton_id) DO NOTHING
+            """,
+        ),
+    ),
 )
 
 

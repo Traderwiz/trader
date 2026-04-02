@@ -1,0 +1,46 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.4.2, pluggy-1.6.0 -- /home/gabernardi/trader/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/gabernardi/trader
+collecting ... collected 38 items
+
+tests/unit/test_audit_log.py::test_audit_log_chain_detects_manual_tampering PASSED [  2%]
+tests/unit/test_backtest_engine.py::test_backtest_engine_runs_simple_strategy_and_returns_metrics PASSED [  5%]
+tests/unit/test_backtest_engine.py::test_backtest_engine_rejects_future_data_access PASSED [  7%]
+tests/unit/test_config.py::test_config_validation_fails_when_required_field_is_missing PASSED [ 10%]
+tests/unit/test_config.py::test_config_resolves_environment_backed_secret PASSED [ 13%]
+tests/unit/test_costs.py::test_default_cost_bundle_applies_non_zero_slippage_to_every_fill PASSED [ 15%]
+tests/unit/test_frontier.py::test_history_view_rejects_future_bar_access PASSED [ 18%]
+tests/unit/test_instruments.py::test_catalog_loads_mes_and_eurusd_with_expected_values PASSED [ 21%]
+tests/unit/test_metrics.py::test_compute_backtest_metrics_returns_expected_core_fields PASSED [ 23%]
+tests/unit/test_operator_strategy_api.py::test_operator_api_promotes_demotes_and_audits_strategy_actions PASSED [ 26%]
+tests/unit/test_parquet_store.py::test_parquet_store_round_trip_preserves_values_and_utc_timestamps PASSED [ 28%]
+tests/unit/test_phase4_execution.py::test_safety_stack_rejects_when_halt_is_set PASSED [ 31%]
+tests/unit/test_phase4_execution.py::test_safety_stack_rejects_when_daily_loss_limit_is_breached PASSED [ 34%]
+tests/unit/test_phase4_execution.py::test_daily_loss_breach_uses_reduce_only_flatten_path PASSED [ 36%]
+tests/unit/test_phase4_execution.py::test_safety_stack_rejects_duplicate_order_intent PASSED [ 39%]
+tests/unit/test_phase4_execution.py::test_safety_stack_rejects_order_price_too_far_from_quote PASSED [ 42%]
+tests/unit/test_phase4_execution.py::test_safety_stack_rejects_when_reconciliation_state_is_dirty PASSED [ 44%]
+tests/unit/test_phase4_execution.py::test_safety_stack_rejects_when_broker_disconnected PASSED [ 47%]
+tests/unit/test_phase4_execution.py::test_safety_stack_happy_path_submits_and_preserves_gate_order PASSED [ 50%]
+tests/unit/test_phase4_execution.py::test_reconciliation_returns_material_on_position_mismatch PASSED [ 52%]
+tests/unit/test_phase4_execution.py::test_reconciliation_returns_clean_when_state_matches PASSED [ 55%]
+tests/unit/test_phase4_execution.py::test_daily_loss_limit_uses_stricter_of_absolute_and_percentage_thresholds PASSED [ 57%]
+tests/unit/test_phase4_execution.py::test_idempotency_ledger_rejects_second_submission_of_same_active_key PASSED [ 60%]
+tests/unit/test_regime.py::test_trending_sequence_is_classified_as_trending PASSED [ 63%]
+tests/unit/test_regime.py::test_ranging_sequence_is_classified_as_ranging PASSED [ 65%]
+tests/unit/test_regime.py::test_high_volatility_sequence_sets_volatile_flag PASSED [ 68%]
+tests/unit/test_repositories.py::test_halt_set_and_clear_are_persisted_atomically PASSED [ 71%]
+tests/unit/test_repositories.py::test_clear_halt_rejects_invalid_token PASSED [ 73%]
+tests/unit/test_state_machine.py::test_valid_transition_path_is_accepted PASSED [ 76%]
+tests/unit/test_state_machine.py::test_invalid_transition_raises_hard_error PASSED [ 78%]
+tests/unit/test_state_machine.py::test_halted_to_ready_requires_operator_token PASSED [ 81%]
+tests/unit/test_strategy_lifecycle.py::test_strategy_registry_stores_and_retrieves_versioned_entries PASSED [ 84%]
+tests/unit/test_strategy_lifecycle.py::test_lifecycle_gate_rejects_backtest_to_paper_when_thresholds_fail PASSED [ 86%]
+tests/unit/test_strategy_lifecycle.py::test_lifecycle_gate_allows_backtest_to_paper_when_thresholds_met PASSED [ 89%]
+tests/unit/test_walkforward.py::test_walkforward_runner_outputs_window_and_aggregate_metrics PASSED [ 92%]
+tests/integration/test_bootstrap_phase4.py::test_startup_reconciliation_blocks_ready_on_material_mismatch PASSED [ 94%]
+tests/scenario/test_crisis_regimes.py::test_crisis_regime_scenarios_produce_metrics_without_lookahead PASSED [ 97%]
+tests/scenario/test_regime_suppression.py::test_regime_suppression_reduces_losses_on_trending_dataset PASSED [100%]
+
+============================= 38 passed in 27.02s ==============================

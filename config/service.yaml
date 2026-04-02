@@ -9,4 +9,15 @@ operator_api:
   host: 127.0.0.1
   port: 8080
 
+ibkr:
+  host: 192.168.0.18
+  port: 4002
+  account: ""
+  client_id: 10
+
+execution:
+  daily_loss_limit_abs: 30.0
+  daily_loss_limit_pct: 0.03
+  reconciliation_heartbeat_seconds: 30
+
 secrets: {}

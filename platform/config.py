@@ -1,4 +1,4 @@
-"""Configuration loading and validation for the Phase 1 service."""
+"""Configuration loading and validation for the trading service."""
 
 from __future__ import annotations
 
@@ -38,17 +38,38 @@ class OperatorAPISettings:
 
 
 @dataclass(frozen=True)
+class IBKRSettings:
+    """IBKR transport settings for paper or live deployment targets."""
+
+    host: str
+    port: int
+    account: str
+    client_id: int
+
+
+@dataclass(frozen=True)
+class ExecutionSettings:
+    """Execution and safety configuration."""
+
+    daily_loss_limit_abs: float
+    daily_loss_limit_pct: float
+    reconciliation_heartbeat_seconds: int = 30
+
+
+@dataclass(frozen=True)
 class AppConfig:
-    """Fully validated Phase 1 configuration."""
+    """Fully validated runtime configuration."""
 
     service: ServiceSettings
     persistence: PersistenceSettings
     operator_api: OperatorAPISettings
+    ibkr: IBKRSettings
+    execution: ExecutionSettings
     secrets: dict[str, str]
 
 
 def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
-    """Load and validate the Phase 1 service configuration."""
+    """Load and validate the service configuration."""
 
     path = Path(config_path).resolve()
     if not path.is_file():
@@ -66,6 +87,8 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
     service_raw = _require_mapping(resolved, "service")
     persistence_raw = _require_mapping(resolved, "persistence")
     operator_raw = _require_mapping(resolved, "operator_api")
+    ibkr_raw = _require_mapping(resolved, "ibkr")
+    execution_raw = _require_mapping(resolved, "execution")
     secrets_raw = resolved.get("secrets") or {}
     if not isinstance(secrets_raw, dict):
         raise ConfigError("Config field 'secrets' must be a mapping when provided.")
@@ -81,10 +104,23 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
     )
     host = _require_non_empty_string(operator_raw, "operator_api.host")
     if host != "127.0.0.1":
-        raise ConfigError("operator_api.host must be exactly '127.0.0.1' for Phase 1.")
-    port = operator_raw.get("port")
-    if not isinstance(port, int) or not (1 <= port <= 65535):
-        raise ConfigError("operator_api.port must be an integer between 1 and 65535.")
+        raise ConfigError("operator_api.host must be exactly '127.0.0.1' for Phase 1+ runtime.")
+    port = _require_int(operator_raw, "operator_api.port", minimum=1, maximum=65535)
+
+    ibkr_host = _require_non_empty_string(ibkr_raw, "ibkr.host")
+    ibkr_port = _require_int(ibkr_raw, "ibkr.port", minimum=1, maximum=65535)
+    ibkr_account = ibkr_raw.get("account", "")
+    if not isinstance(ibkr_account, str):
+        raise ConfigError("Config field 'ibkr.account' must be a string.")
+    ibkr_client_id = _require_int(ibkr_raw, "ibkr.client_id", minimum=0)
+
+    loss_limit_abs = _require_number(execution_raw, "execution.daily_loss_limit_abs", minimum_exclusive=0.0)
+    loss_limit_pct = _require_number(execution_raw, "execution.daily_loss_limit_pct", minimum_exclusive=0.0)
+    if loss_limit_pct > 1.0:
+        raise ConfigError("Config field 'execution.daily_loss_limit_pct' must be less than or equal to 1.0.")
+    heartbeat_seconds = int(execution_raw.get("reconciliation_heartbeat_seconds", 30))
+    if heartbeat_seconds <= 0:
+        raise ConfigError("execution.reconciliation_heartbeat_seconds must be positive.")
 
     normalized_secrets: dict[str, str] = {}
     for key, value in secrets_raw.items():
@@ -98,6 +134,17 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
         service=ServiceSettings(name=name),
         persistence=PersistenceSettings(sqlite_path=sqlite_path, audit_root=audit_root),
         operator_api=OperatorAPISettings(host=host, port=port),
+        ibkr=IBKRSettings(
+            host=ibkr_host,
+            port=ibkr_port,
+            account=ibkr_account.strip(),
+            client_id=ibkr_client_id,
+        ),
+        execution=ExecutionSettings(
+            daily_loss_limit_abs=float(loss_limit_abs),
+            daily_loss_limit_pct=float(loss_limit_pct),
+            reconciliation_heartbeat_seconds=heartbeat_seconds,
+        ),
         secrets=normalized_secrets,
     )
 
@@ -143,6 +190,38 @@ def _require_non_empty_string(raw: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"Config field '{key}' is required and must be a non-empty string.")
     return value.strip()
+
+
+def _require_int(raw: dict[str, Any], key: str, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    """Require an integer field with optional bounds."""
+
+    leaf_key = key.rsplit(".", 1)[-1]
+    value = raw.get(leaf_key)
+    if not isinstance(value, int):
+        raise ConfigError(f"Config field '{key}' must be an integer.")
+    if minimum is not None and value < minimum:
+        raise ConfigError(f"Config field '{key}' must be greater than or equal to {minimum}.")
+    if maximum is not None and value > maximum:
+        raise ConfigError(f"Config field '{key}' must be less than or equal to {maximum}.")
+    return value
+
+
+def _require_number(
+    raw: dict[str, Any],
+    key: str,
+    *,
+    minimum_exclusive: float | None = None,
+) -> float:
+    """Require a numeric field with optional lower bound."""
+
+    leaf_key = key.rsplit(".", 1)[-1]
+    value = raw.get(leaf_key)
+    if not isinstance(value, (int, float)):
+        raise ConfigError(f"Config field '{key}' must be numeric.")
+    numeric = float(value)
+    if minimum_exclusive is not None and numeric <= minimum_exclusive:
+        raise ConfigError(f"Config field '{key}' must be greater than {minimum_exclusive}.")
+    return numeric
 
 
 def _resolve_path(raw_path: str, base_dir: Path) -> Path:
