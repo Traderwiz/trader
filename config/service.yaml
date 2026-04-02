@@ -18,9 +18,9 @@ ibkr:
 
 alerts:
   telegram:
-    enabled: false
-    bot_token: ""
-    chat_id: ""
+    enabled: true
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    chat_id: ${TELEGRAM_CHAT_ID}
 
 execution:
   daily_loss_limit_abs: 30.0

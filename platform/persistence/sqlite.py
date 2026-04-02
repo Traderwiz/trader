@@ -166,6 +166,50 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=4,
+        name="extend_strategy_registry_with_runtime_tables",
+        statements=(
+            """
+            ALTER TABLE strategy_registry
+            ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS strategy_runtime_state (
+                strategy_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                state_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (strategy_id, version)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS strategy_paper_trades (
+                trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                instrument_id TEXT NOT NULL,
+                entry_date TEXT NOT NULL,
+                exit_date TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL NOT NULL,
+                exit_reason TEXT NOT NULL,
+                pnl REAL NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_strategy_paper_trades_lookup
+            ON strategy_paper_trades (strategy_id, version, exit_date, trade_id)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_strategy_runtime_state_stage
+            ON strategy_runtime_state (stage)
+            """,
+        ),
+    ),
 )
 
 

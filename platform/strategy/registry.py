@@ -30,6 +30,7 @@ class StrategyRegistry:
         supported_regimes: tuple[str, ...],
         hard_disallowed_regimes: tuple[str, ...] = (),
         volatility_cap: float | None = None,
+        metadata: dict[str, Any] | None = None,
         current_stage: StrategyStage = StrategyStage.RESEARCH,
     ) -> StrategyVersionRecord:
         """Register or update one versioned strategy artifact."""
@@ -47,6 +48,7 @@ class StrategyRegistry:
                 supported_regimes=tuple(supported_regimes),
                 hard_disallowed_regimes=tuple(hard_disallowed_regimes),
                 volatility_cap=volatility_cap,
+                metadata=dict(metadata or {}),
                 current_stage=current_stage,
                 created_at=now,
                 updated_at=now,
@@ -61,6 +63,7 @@ class StrategyRegistry:
         parameters: dict[str, Any] | None = None,
         required_data: tuple[str, ...] = (),
         current_stage: StrategyStage = StrategyStage.RESEARCH,
+        metadata: dict[str, Any] | None = None,
     ) -> StrategyVersionRecord:
         """Register a Strategy subclass using its declared contract."""
 
@@ -75,6 +78,7 @@ class StrategyRegistry:
             supported_regimes=tuple(strategy.supported_regimes),
             hard_disallowed_regimes=tuple(strategy.hard_disallowed_regimes),
             volatility_cap=strategy.volatility_cap,
+            metadata=dict(metadata or {}),
             current_stage=current_stage,
         )
 

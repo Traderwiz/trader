@@ -28,6 +28,7 @@ class PromotionSelector:
         crisis_results: dict[str, Any],
         regime_suppression_comparison: dict[str, Any],
         gate_results: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
         drift_report: DriftReport | None = None,
     ) -> PromotionBundle:
         bundle_gate_results = dict(gate_results)
@@ -46,6 +47,7 @@ class PromotionSelector:
             crisis_results=crisis_results,
             regime_suppression_comparison=regime_suppression_comparison,
             gate_results=bundle_gate_results,
+            metadata=dict(metadata or {}),
             drift_report=serialized_drift_report,
         )
         self.repository.store_bundle(bundle)

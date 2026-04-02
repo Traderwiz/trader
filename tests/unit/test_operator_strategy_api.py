@@ -85,6 +85,39 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         audit_log=audit_log,
         telegram=TelegramAlertSettings(enabled=False, bot_token="", chat_id=""),
     )
+
+    class RuntimeStub:
+        def get_strategy_status(self, strategy_id: str) -> dict[str, object]:
+            return {
+                "strategy_id": strategy_id,
+                "version": "3.1.0",
+                "stage": "PAPER",
+                "last_bar_processed": "2026-04-02T21:30:00Z",
+                "current_position": "flat",
+                "days_held": 0,
+                "current_rsi_2": 22.5,
+                "current_adx_14": 25.0,
+                "current_sma_100": 6100.0,
+                "last_signal": {"reason": "entry", "side": "LONG"},
+            }
+
+        def get_strategy_trades(self, strategy_id: str) -> dict[str, object]:
+            return {
+                "strategy_id": strategy_id,
+                "version": "3.1.0",
+                "stage": "PAPER",
+                "trades": [
+                    {
+                        "entry_date": "2026-04-01",
+                        "exit_date": "2026-04-02",
+                        "entry_price": 100.0,
+                        "exit_price": 110.0,
+                        "exit_reason": "profit_target",
+                        "pnl": 50.0,
+                    }
+                ],
+            }
+
     service = OperatorCommandService(
         run_id=str(uuid.uuid4()),
         started_at=datetime.now(timezone.utc),
@@ -100,6 +133,7 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         ibkr_host="192.168.0.18",
         ibkr_port=4002,
         ibkr_account="DU123456",
+        strategy_runtime_service=RuntimeStub(),
     )
     server = OperatorAPIServer(host="127.0.0.1", port=0, command_service=service)
     server.start()
@@ -113,6 +147,13 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         assert mode["ibkr"]["host"] == "192.168.0.18"
         assert mode["ibkr"]["port"] == 4002
         assert mode["ibkr"]["account"] == "DU****56"
+
+        status = _read_json(f"{base_url}/strategy/TrendFollower/status")
+        assert status["current_position"] == "flat"
+        assert status["current_rsi_2"] == pytest.approx(22.5)
+
+        trades = _read_json(f"{base_url}/strategy/TrendFollower/trades")
+        assert trades["trades"][0]["exit_reason"] == "profit_target"
 
         bundle = _read_json(f"{base_url}/strategy/TrendFollower/bundle?version=3.1.0")
         assert bundle["bundle"]["strategy_id"] == "TrendFollower"

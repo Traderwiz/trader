@@ -18,6 +18,7 @@ from .regime import RegimeFeatures, RegimeState, RegimeSuppressionDecision
 from .runtime_state import RuntimeState
 from .strategy_stage import StrategyStage
 from .strategy_registry import PromotionBundle, StrategyVersionRecord
+from .strategy_runtime import StrategyRuntimeRecord, StrategyTradeRecord
 
 __all__ = [
     "AuditRecord",
@@ -43,6 +44,8 @@ __all__ = [
     "SignalIntent",
     "SignalSide",
     "StrategyStage",
+    "StrategyRuntimeRecord",
+    "StrategyTradeRecord",
     "StrategyVersionRecord",
     "TradeEvent",
     "build_intent_id",

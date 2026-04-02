@@ -22,6 +22,7 @@ class StrategyVersionRecord:
     supported_regimes: tuple[str, ...]
     hard_disallowed_regimes: tuple[str, ...] = field(default_factory=tuple)
     volatility_cap: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     current_stage: StrategyStage = StrategyStage.RESEARCH
     created_at: str = ""
     updated_at: str = ""
@@ -51,6 +52,7 @@ class PromotionBundle:
     crisis_results: dict[str, Any]
     regime_suppression_comparison: dict[str, Any]
     gate_results: dict[str, Any]
+    metadata: dict[str, Any] = field(default_factory=dict)
     drift_report: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

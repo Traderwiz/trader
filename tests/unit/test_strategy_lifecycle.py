@@ -165,3 +165,36 @@ def _crisis_results(passed: bool) -> dict[str, object]:
         "2020": {"passed": passed},
         "2022": {"passed": passed},
     }
+
+
+def test_lifecycle_uses_bundle_threshold_overrides_for_paper_promotion(strategy_runtime) -> None:
+    _store, registry, selector, _lifecycle, service = strategy_runtime
+    registry.register_strategy(
+        strategy_id="OverrideSharpe",
+        version="1.0.0",
+        description="Trend strategy",
+        parameters={},
+        allowed_instruments=("MES",),
+        bar_sizes=("1D",),
+        required_data=("bars",),
+        supported_regimes=("trending",),
+        current_stage=StrategyStage.BACKTEST,
+    )
+    selector.build_bundle(
+        strategy_id="OverrideSharpe",
+        version="1.0.0",
+        walkforward_results=_walkforward_metrics(
+            profit_factor=1.35,
+            sharpe_ratio=0.72,
+            max_drawdown_pct=0.08,
+            win_rate=0.61,
+            trade_count=140,
+        ),
+        crisis_results=_crisis_results(True),
+        regime_suppression_comparison={"loss_delta": 55.0},
+        gate_results={},
+        metadata={"promotion_thresholds": {"sharpe_ratio_min": 0.70}},
+    )
+
+    promoted = service.promote_strategy(strategy_id="OverrideSharpe", version="1.0.0", issued_by="operator")
+    assert promoted["strategy"]["current_stage"] == StrategyStage.PAPER.value

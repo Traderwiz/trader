@@ -58,6 +58,11 @@ class StrategyLifecycleManager:
 
     def _backtest_to_paper_gates(self, bundle: PromotionBundle) -> dict[str, Any]:
         aggregate = dict(bundle.walkforward_results.get("aggregate_oos_metrics") or {})
+        thresholds = dict(bundle.metadata.get("promotion_thresholds") or {})
+        profit_factor_min = float(thresholds.get("profit_factor_min", 1.20))
+        sharpe_ratio_min = float(thresholds.get("sharpe_ratio_min", 1.00))
+        max_drawdown_pct_max = float(thresholds.get("max_drawdown_pct_max", 0.12))
+        win_rate_min = float(thresholds.get("win_rate_min", 0.55))
         suppression = dict(bundle.regime_suppression_comparison or {})
         crisis = dict(bundle.crisis_results or {})
         return {
@@ -65,10 +70,10 @@ class StrategyLifecycleManager:
             "crisis_suite_passed": {
                 "passed": all(crisis.get(year, {}).get("passed", False) for year in ("2008", "2020", "2022"))
             },
-            "profit_factor": {"passed": float(aggregate.get("profit_factor", 0.0)) > 1.20},
-            "sharpe_ratio": {"passed": float(aggregate.get("sharpe_ratio", 0.0)) > 1.00},
-            "max_drawdown_pct": {"passed": float(aggregate.get("max_drawdown_pct", 1.0)) < 0.12},
-            "win_rate": {"passed": float(aggregate.get("win_rate", 0.0)) > 0.55},
+            "profit_factor": {"passed": float(aggregate.get("profit_factor", 0.0)) > profit_factor_min},
+            "sharpe_ratio": {"passed": float(aggregate.get("sharpe_ratio", 0.0)) > sharpe_ratio_min},
+            "max_drawdown_pct": {"passed": float(aggregate.get("max_drawdown_pct", 1.0)) < max_drawdown_pct_max},
+            "win_rate": {"passed": float(aggregate.get("win_rate", 0.0)) > win_rate_min},
             "minimum_trades": {"passed": int(aggregate.get("trade_count", 0)) >= 100},
             "regime_suppression_reduces_losses": {
                 "passed": float(suppression.get("loss_delta", 0.0)) > 0.0

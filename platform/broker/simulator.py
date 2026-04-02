@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from platform.broker.base import AccountSummary, BrokerAdapter, BrokerExecution, BrokerOrder, BrokerPosition, OrderId
+from platform.models.market_data import BarEvent
 from platform.models import OrderIntent, OrderIntentStatus, OrderSide
 
 
@@ -21,6 +22,7 @@ class SimulatedBrokerAdapter(BrokerAdapter):
         quotes: dict[str, float] | None = None,
         connected: bool = True,
         auto_fill: bool = False,
+        daily_bars: dict[str, BarEvent] | None = None,
     ) -> None:
         self._account_summary = account_summary or AccountSummary(cash=1000.0, net_liquidation_value=1000.0, buying_power=1000.0)
         self._positions = {position.instrument_id: position for position in positions or []}
@@ -29,6 +31,7 @@ class SimulatedBrokerAdapter(BrokerAdapter):
         self._quotes = dict(quotes or {})
         self._connected = connected
         self._auto_fill = auto_fill
+        self._daily_bars = dict(daily_bars or {})
         self._next_order_id = max((int(order_id) for order_id in self._open_orders), default=0) + 1
         self.submitted_intents: list[OrderIntent] = []
 
@@ -111,6 +114,15 @@ class SimulatedBrokerAdapter(BrokerAdapter):
 
     def get_quote(self, instrument_id: str) -> float | None:
         return self._quotes.get(instrument_id)
+
+    def set_daily_bar(self, instrument_id: str, bar: BarEvent) -> None:
+        self._daily_bars[instrument_id] = bar
+
+    def get_daily_bar(self, instrument_id: str) -> BarEvent:
+        try:
+            return self._daily_bars[instrument_id]
+        except KeyError as exc:
+            raise RuntimeError(f"No simulated daily bar configured for {instrument_id}.") from exc
 
     def replace_positions(self, positions: list[BrokerPosition]) -> None:
         self._positions = {position.instrument_id: position for position in positions}

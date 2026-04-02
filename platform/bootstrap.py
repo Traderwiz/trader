@@ -12,6 +12,8 @@ from platform.broker.base import BrokerAdapter
 from platform.broker.ibkr import IBKRAdapter
 from platform.broker.reconciliation import ReconciliationEngine, ReconciliationStatus
 from platform.config import AppConfig, load_config
+from platform.data.catalog import load_instrument_catalog
+from platform.data.parquet_store import ParquetStore
 from platform.execution.idempotency import SQLiteIdempotencyLedger
 from platform.execution.price_sanity import OrderPriceSanityValidator, QuoteSnapshot
 from platform.execution.safety_stack import SafetyStack
@@ -21,13 +23,23 @@ from platform.operator.alerts import AlertDispatcher, AlertSeverity, mask_accoun
 from platform.operator.api import OperatorAPIServer
 from platform.operator.commands import OperatorCommandService
 from platform.persistence.audit_log import AuditLogWriter
-from platform.persistence.repositories import AuditLogIndexRepository, ControlStateRepository, StrategyRegistryRepository
+from platform.persistence.repositories import (
+    AuditLogIndexRepository,
+    ControlStateRepository,
+    RegimeStateRepository,
+    StrategyRegistryRepository,
+    StrategyRuntimeStateRepository,
+    StrategyTradeLogRepository,
+)
 from platform.persistence.sqlite import SQLiteOperationalStore
 from platform.portfolio.ledger import PortfolioLedger
+from platform.regime.detector import RegimeDetector
 from platform.portfolio.limits import DailyLossLimitEnforcer
 from platform.portfolio.session_pnl import SessionPNLTracker
 from platform.state_machine import RuntimeStateMachine
+from platform.strategy.daily_runner import DailyBarRunner
 from platform.strategy.lifecycle import StrategyLifecycleManager
+from platform.strategy.runtime import StrategyRuntimeService
 
 
 @dataclass
@@ -48,6 +60,8 @@ class BootstrapContext:
     reconciliation_engine: ReconciliationEngine
     portfolio_ledger: PortfolioLedger
     alert_dispatcher: AlertDispatcher
+    strategy_runtime_service: StrategyRuntimeService
+    daily_bar_runner: DailyBarRunner
     started_at: datetime
 
     def shutdown(self) -> None:
@@ -79,10 +93,14 @@ def bootstrap_service(
 ) -> BootstrapContext:
     """Construct and start the runtime service components."""
 
-    config = load_config(config_path)
+    config_file = Path(config_path).resolve()
+    config = load_config(config_file)
     started_at = datetime.now(timezone.utc)
     run_id = str(uuid.uuid4())
-    instrument_catalog = dict(instruments or {})
+    if instruments is None:
+        instrument_catalog = dict(load_instrument_catalog(config_file.parent / "instruments.yaml").instruments)
+    else:
+        instrument_catalog = dict(instruments)
 
     store = SQLiteOperationalStore(config.persistence.sqlite_path)
     store.open()
@@ -90,6 +108,9 @@ def bootstrap_service(
 
     control_state_repository = ControlStateRepository(store)
     strategy_registry_repository = StrategyRegistryRepository(store)
+    regime_state_repository = RegimeStateRepository(store)
+    strategy_runtime_repository = StrategyRuntimeStateRepository(store)
+    strategy_trade_repository = StrategyTradeLogRepository(store)
     audit_index_repository = AuditLogIndexRepository(store)
     audit_log = AuditLogWriter(
         audit_root=config.persistence.audit_root,
@@ -184,6 +205,32 @@ def bootstrap_service(
     reconciliation_engine.set_refresh_local_state(execution_service.refresh_local_state)
     daily_loss_limits.set_on_breach(execution_service.handle_daily_loss_breach)
 
+    regime_detector = RegimeDetector(
+        repository=regime_state_repository,
+        audit_log=audit_log,
+    )
+    parquet_store = ParquetStore(config_file.parent.parent / "var" / "data")
+    strategy_runtime_service = StrategyRuntimeService(
+        registry_repository=strategy_registry_repository,
+        runtime_state_repository=strategy_runtime_repository,
+        trade_log_repository=strategy_trade_repository,
+        execution_service=execution_service,
+        regime_detector=regime_detector,
+        audit_log=audit_log,
+        alert_dispatcher=alerts,
+        parquet_store=parquet_store,
+        instruments=instrument_catalog,
+    )
+    daily_bar_runner = DailyBarRunner(
+        strategy_runtime_service=strategy_runtime_service,
+        execution_service=execution_service,
+        state_machine=state_machine,
+        audit_log=audit_log,
+        alert_dispatcher=alerts,
+        broker_adapter=adapter,
+        parquet_store=parquet_store,
+    )
+
     command_service = OperatorCommandService(
         run_id=run_id,
         started_at=started_at,
@@ -200,6 +247,8 @@ def bootstrap_service(
         ibkr_host=config.ibkr.host,
         ibkr_port=config.ibkr.port,
         ibkr_account=config.ibkr.account,
+        strategy_runtime_service=strategy_runtime_service,
+        daily_bar_runner=daily_bar_runner,
     )
     command_service.rotate_reconciliation_token()
 
@@ -270,6 +319,8 @@ def bootstrap_service(
         reconciliation_engine=reconciliation_engine,
         portfolio_ledger=portfolio_ledger,
         alert_dispatcher=alerts,
+        strategy_runtime_service=strategy_runtime_service,
+        daily_bar_runner=daily_bar_runner,
         started_at=started_at,
     )
 

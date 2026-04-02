@@ -70,6 +70,20 @@ class OperatorAPIServer:
                 if parsed.path == "/strategy/list":
                     self._write_json(HTTPStatus.OK, {"strategies": command_service.list_strategies()})
                     return
+                if parsed.path.startswith("/strategy/") and parsed.path.endswith("/status"):
+                    strategy_id = parsed.path[len("/strategy/") : -len("/status")].strip("/")
+                    if not strategy_id:
+                        self._write_json(HTTPStatus.BAD_REQUEST, {"error": "strategy id is required"})
+                        return
+                    self._write_json(HTTPStatus.OK, command_service.get_strategy_status(strategy_id=strategy_id))
+                    return
+                if parsed.path.startswith("/strategy/") and parsed.path.endswith("/trades"):
+                    strategy_id = parsed.path[len("/strategy/") : -len("/trades")].strip("/")
+                    if not strategy_id:
+                        self._write_json(HTTPStatus.BAD_REQUEST, {"error": "strategy id is required"})
+                        return
+                    self._write_json(HTTPStatus.OK, command_service.get_strategy_trades(strategy_id=strategy_id))
+                    return
                 if parsed.path.startswith("/strategy/") and parsed.path.endswith("/bundle"):
                     strategy_id = parsed.path[len("/strategy/") : -len("/bundle")].strip("/")
                     if not strategy_id:
@@ -158,6 +172,11 @@ class OperatorAPIServer:
                             target_stage=target_stage,
                             issued_by=issued_by,
                         )
+                        self._write_json(HTTPStatus.OK, result)
+                        return
+                    if parsed.path == "/daily-bars/run":
+                        issued_by = _required_non_empty_string(body, "issued_by")
+                        result = command_service.run_daily_bars(issued_by=issued_by)
                         self._write_json(HTTPStatus.OK, result)
                         return
                     self._write_json(HTTPStatus.NOT_FOUND, {"error": "endpoint not found"})

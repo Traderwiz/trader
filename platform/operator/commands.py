@@ -40,6 +40,8 @@ class OperatorCommandService:
     ibkr_host: str = ""
     ibkr_port: int = 0
     ibkr_account: str = ""
+    strategy_runtime_service: Any | None = None
+    daily_bar_runner: Any | None = None
 
     def get_status(self) -> dict[str, Any]:
         """Return runtime and persistent halt status."""
@@ -233,6 +235,36 @@ class OperatorCommandService:
         try:
             return DriftReportStore(self.drift_report_root).read(strategy_id, version).to_dict()
         except FileNotFoundError as exc:
+            raise OperatorCommandError(str(exc)) from exc
+
+    def get_strategy_status(self, *, strategy_id: str) -> dict[str, Any]:
+        """Return the latest persisted runtime status for one strategy."""
+
+        if self.strategy_runtime_service is None:
+            raise OperatorCommandError("Strategy runtime service is not configured.")
+        try:
+            return self.strategy_runtime_service.get_strategy_status(strategy_id)
+        except KeyError as exc:
+            raise OperatorCommandError(str(exc)) from exc
+
+    def get_strategy_trades(self, *, strategy_id: str) -> dict[str, Any]:
+        """Return the persisted paper trade log for one strategy."""
+
+        if self.strategy_runtime_service is None:
+            raise OperatorCommandError("Strategy runtime service is not configured.")
+        try:
+            return self.strategy_runtime_service.get_strategy_trades(strategy_id)
+        except KeyError as exc:
+            raise OperatorCommandError(str(exc)) from exc
+
+    def run_daily_bars(self, *, issued_by: str) -> dict[str, Any]:
+        """Trigger one daily bar delivery cycle through the traderd runtime."""
+
+        if self.daily_bar_runner is None:
+            raise OperatorCommandError("Daily bar runner is not configured.")
+        try:
+            return self.daily_bar_runner.run(issued_by=issued_by)
+        except Exception as exc:
             raise OperatorCommandError(str(exc)) from exc
 
     def promote_strategy(self, *, strategy_id: str, version: str, issued_by: str) -> dict[str, Any]:

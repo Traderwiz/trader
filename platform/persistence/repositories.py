@@ -7,7 +7,16 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from platform.models import AuditRecord, HaltState, PromotionBundle, RegimeState, StrategyStage, StrategyVersionRecord
+from platform.models import (
+    AuditRecord,
+    HaltState,
+    PromotionBundle,
+    RegimeState,
+    StrategyRuntimeRecord,
+    StrategyStage,
+    StrategyTradeRecord,
+    StrategyVersionRecord,
+)
 from platform.persistence.sqlite import SQLiteOperationalStore
 
 
@@ -247,11 +256,12 @@ class StrategyRegistryRepository:
                     supported_regimes_json,
                     hard_disallowed_regimes_json,
                     volatility_cap,
+                    metadata_json,
                     current_stage,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(strategy_id, version) DO UPDATE SET
                     description = excluded.description,
                     parameters_json = excluded.parameters_json,
@@ -261,6 +271,7 @@ class StrategyRegistryRepository:
                     supported_regimes_json = excluded.supported_regimes_json,
                     hard_disallowed_regimes_json = excluded.hard_disallowed_regimes_json,
                     volatility_cap = excluded.volatility_cap,
+                    metadata_json = excluded.metadata_json,
                     current_stage = excluded.current_stage,
                     updated_at = excluded.updated_at
                 """,
@@ -275,6 +286,7 @@ class StrategyRegistryRepository:
                     _dump_json(record.supported_regimes),
                     _dump_json(record.hard_disallowed_regimes),
                     record.volatility_cap,
+                    _dump_json(record.metadata),
                     record.current_stage.value,
                     record.created_at or _utc_now(),
                     record.updated_at or _utc_now(),
@@ -375,8 +387,144 @@ class StrategyRegistryRepository:
             crisis_results=dict(payload["crisis_results"]),
             regime_suppression_comparison=dict(payload["regime_suppression_comparison"]),
             gate_results=dict(payload["gate_results"]),
+            metadata=dict(payload.get("metadata") or {}),
             drift_report=dict(payload.get("drift_report") or {}),
         )
+
+
+class StrategyRuntimeStateRepository:
+    """Stores the latest persisted runtime state per strategy version."""
+
+    def __init__(self, store: SQLiteOperationalStore) -> None:
+        self._store = store
+
+    def upsert(self, record: StrategyRuntimeRecord) -> StrategyRuntimeRecord:
+        with self._store.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO strategy_runtime_state (
+                    strategy_id,
+                    version,
+                    stage,
+                    state_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(strategy_id, version) DO UPDATE SET
+                    stage = excluded.stage,
+                    state_json = excluded.state_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    record.strategy_id,
+                    record.version,
+                    record.stage,
+                    _dump_json(record.state),
+                    record.updated_at or _utc_now(),
+                ),
+            )
+        return self.get(record.strategy_id, record.version)
+
+    def get(self, strategy_id: str, version: str) -> StrategyRuntimeRecord:
+        connection = _require_connection(self._store)
+        row = connection.execute(
+            """
+            SELECT strategy_id, version, stage, state_json, updated_at
+            FROM strategy_runtime_state
+            WHERE strategy_id = ? AND version = ?
+            """,
+            (strategy_id, version),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Strategy runtime state not found for {strategy_id}@{version}")
+        return StrategyRuntimeRecord(
+            strategy_id=str(row["strategy_id"]),
+            version=str(row["version"]),
+            stage=str(row["stage"]),
+            state=dict(json.loads(str(row["state_json"]))),
+            updated_at=str(row["updated_at"]),
+        )
+
+
+class StrategyTradeLogRepository:
+    """Stores closed paper trades per strategy version."""
+
+    def __init__(self, store: SQLiteOperationalStore) -> None:
+        self._store = store
+
+    def append(self, record: StrategyTradeRecord) -> StrategyTradeRecord:
+        with self._store.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO strategy_paper_trades (
+                    strategy_id,
+                    version,
+                    instrument_id,
+                    entry_date,
+                    exit_date,
+                    entry_price,
+                    exit_price,
+                    exit_reason,
+                    pnl,
+                    metadata_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.strategy_id,
+                    record.version,
+                    record.instrument_id,
+                    record.entry_date,
+                    record.exit_date,
+                    record.entry_price,
+                    record.exit_price,
+                    record.exit_reason,
+                    record.pnl,
+                    _dump_json(record.metadata),
+                    record.created_at or _utc_now(),
+                ),
+            )
+        return record
+
+    def list_for_strategy(self, strategy_id: str, version: str) -> list[StrategyTradeRecord]:
+        connection = _require_connection(self._store)
+        rows = connection.execute(
+            """
+            SELECT
+                strategy_id,
+                version,
+                instrument_id,
+                entry_date,
+                exit_date,
+                entry_price,
+                exit_price,
+                exit_reason,
+                pnl,
+                metadata_json,
+                created_at
+            FROM strategy_paper_trades
+            WHERE strategy_id = ? AND version = ?
+            ORDER BY entry_date ASC, trade_id ASC
+            """,
+            (strategy_id, version),
+        ).fetchall()
+        return [
+            StrategyTradeRecord(
+                strategy_id=str(row["strategy_id"]),
+                version=str(row["version"]),
+                instrument_id=str(row["instrument_id"]),
+                entry_date=str(row["entry_date"]),
+                exit_date=str(row["exit_date"]),
+                entry_price=float(row["entry_price"]),
+                exit_price=float(row["exit_price"]),
+                exit_reason=str(row["exit_reason"]),
+                pnl=float(row["pnl"]),
+                metadata=dict(json.loads(str(row["metadata_json"]))),
+                created_at=str(row["created_at"]),
+            )
+            for row in rows
+        ]
 
 
 class RegimeStateRepository:
@@ -456,6 +604,7 @@ def _hydrate_strategy_record(row: sqlite3.Row) -> StrategyVersionRecord:
         supported_regimes=tuple(json.loads(str(row["supported_regimes_json"]))),
         hard_disallowed_regimes=tuple(json.loads(str(row["hard_disallowed_regimes_json"]))),
         volatility_cap=row["volatility_cap"],
+        metadata=dict(json.loads(str(row["metadata_json"]))),
         current_stage=StrategyStage(str(row["current_stage"])),
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
