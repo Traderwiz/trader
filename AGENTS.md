@@ -134,3 +134,11 @@ The operator is Greg. Greg is the architect and decision-maker. Codex is the imp
 - Never commit `__pycache__/`, `.venv/`, `var/`, or `.pytest_cache/` — covered by .gitignore
 - After every phase commit, push to origin before reporting completion
 - Use `git status` before committing to verify no unintended files are staged
+
+
+## Phase 5 Notes
+
+- The system has been through 5 build phases.
+- Paper-to-live promotion requires: 20+ paper sessions, zero reconciliation mismatches, drift within tolerance, and operator sign-off.
+- Live mode requires an explicit config change and a non-empty account ID.
+- Never set `mode: live` without operator approval.

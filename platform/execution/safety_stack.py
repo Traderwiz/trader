@@ -10,6 +10,7 @@ from platform.broker.reconciliation import ReconciliationEngine, ReconciliationS
 from platform.execution.idempotency import DuplicateIntentError, SQLiteIdempotencyLedger
 from platform.execution.price_sanity import OrderPriceSanityValidator
 from platform.models import Instrument, OrderIntent, RuntimeState
+from platform.operator.alerts import AlertDispatcher, AlertSeverity
 from platform.persistence.audit_log import AuditLogWriter
 from platform.persistence.repositories import ControlStateRepository
 from platform.portfolio.limits import DailyLossLimitEnforcer
@@ -25,7 +26,7 @@ class GateResult:
 
 
 class SafetyStack:
-    """Applies the non-bypassable Phase 4 safety gates in spec order."""
+    """Applies the non-bypassable safety gates in spec order."""
 
     def __init__(
         self,
@@ -39,6 +40,7 @@ class SafetyStack:
         broker_adapter: BrokerAdapter,
         audit_log: AuditLogWriter,
         reconciliation_heartbeat_seconds: int = 30,
+        alert_dispatcher: AlertDispatcher | None = None,
     ) -> None:
         self._control_state_repository = control_state_repository
         self._state_machine = state_machine
@@ -48,7 +50,9 @@ class SafetyStack:
         self._reconciliation_engine = reconciliation_engine
         self._broker_adapter = broker_adapter
         self._audit_log = audit_log
+        self._alert_dispatcher = alert_dispatcher
         self._reconciliation_ttl = timedelta(seconds=reconciliation_heartbeat_seconds)
+        self._disconnect_alert_active = False
 
     def evaluate(self, intent: OrderIntent, instrument: Instrument) -> GateResult:
         gates = (
@@ -122,5 +126,13 @@ class SafetyStack:
 
     def _broker_connectivity_gate(self) -> GateResult:
         if not self._broker_adapter.is_connected():
+            if self._alert_dispatcher is not None and not self._disconnect_alert_active:
+                self._alert_dispatcher.send(
+                    severity=AlertSeverity.WARNING,
+                    event_type="broker.disconnect",
+                    message="Broker connectivity gate failed: IBKR is disconnected",
+                )
+                self._disconnect_alert_active = True
             return GateResult(False, "broker is disconnected")
+        self._disconnect_alert_active = False
         return GateResult(True, "broker connected")

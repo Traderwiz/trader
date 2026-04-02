@@ -1,4 +1,4 @@
-"""Loopback-only HTTP API exposing Phase 1 operator controls."""
+"""Loopback-only HTTP API exposing Phase 5 operator controls."""
 
 from __future__ import annotations
 
@@ -46,14 +46,17 @@ class OperatorAPIServer:
         command_service = self.command_service
 
         class Handler(BaseHTTPRequestHandler):
-            """Request handler for Phase 1 operator endpoints."""
+            """Request handler for Phase 5 operator endpoints."""
 
-            server_version = "traderd-phase1/1.0"
+            server_version = "traderd-phase5/1.0"
 
             def do_GET(self) -> None:  # noqa: N802
                 parsed = urlparse(self.path)
                 if parsed.path == "/status":
                     self._write_json(HTTPStatus.OK, command_service.get_status())
+                    return
+                if parsed.path == "/mode":
+                    self._write_json(HTTPStatus.OK, command_service.get_mode_info())
                     return
                 if parsed.path == "/audit":
                     limit_raw = parse_qs(parsed.query).get("limit", ["50"])[0]
@@ -79,6 +82,20 @@ class OperatorAPIServer:
                     self._write_json(
                         HTTPStatus.OK,
                         {"bundle": command_service.get_strategy_bundle(strategy_id=strategy_id, version=version)},
+                    )
+                    return
+                if parsed.path.startswith("/strategy/") and parsed.path.endswith("/drift"):
+                    strategy_id = parsed.path[len("/strategy/") : -len("/drift")].strip("/")
+                    if not strategy_id:
+                        self._write_json(HTTPStatus.BAD_REQUEST, {"error": "strategy id is required"})
+                        return
+                    version = parse_qs(parsed.query).get("version", [""])[0].strip()
+                    if not version:
+                        self._write_json(HTTPStatus.BAD_REQUEST, {"error": "version query parameter is required"})
+                        return
+                    self._write_json(
+                        HTTPStatus.OK,
+                        {"drift_report": command_service.get_strategy_drift(strategy_id=strategy_id, version=version)},
                     )
                     return
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "endpoint not found"})
@@ -112,6 +129,12 @@ class OperatorAPIServer:
                             reconciliation_token=reconciliation_token,
                         )
                         self._write_json(HTTPStatus.OK, result)
+                        return
+                    if parsed.path == "/alerts/test":
+                        message = body.get("message", "Phase 5 alert dispatcher test")
+                        if not isinstance(message, str) or not message.strip():
+                            raise ValueError("message must be a non-empty string when provided")
+                        self._write_json(HTTPStatus.OK, command_service.send_test_alert(message=message.strip()))
                         return
                     if parsed.path == "/strategy/promote":
                         issued_by = _required_non_empty_string(body, "issued_by")

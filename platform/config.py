@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,13 @@ import yaml
 
 class ConfigError(RuntimeError):
     """Raised when the service configuration is missing or invalid."""
+
+
+class RuntimeMode(StrEnum):
+    """Supported runtime deployment modes."""
+
+    PAPER = "paper"
+    LIVE = "live"
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,27 @@ class IBKRSettings:
 
 
 @dataclass(frozen=True)
+class TelegramAlertSettings:
+    """Optional Telegram alert sink configuration."""
+
+    enabled: bool
+    bot_token: str
+    chat_id: str
+
+    @property
+    def is_configured(self) -> bool:
+        return self.enabled and bool(self.bot_token.strip()) and bool(self.chat_id.strip())
+
+
+@dataclass(frozen=True)
+class AlertsSettings:
+    """Alert sink configuration."""
+
+    log_path: Path
+    telegram: TelegramAlertSettings
+
+
+@dataclass(frozen=True)
 class ExecutionSettings:
     """Execution and safety configuration."""
 
@@ -60,10 +89,12 @@ class ExecutionSettings:
 class AppConfig:
     """Fully validated runtime configuration."""
 
+    mode: RuntimeMode
     service: ServiceSettings
     persistence: PersistenceSettings
     operator_api: OperatorAPISettings
     ibkr: IBKRSettings
+    alerts: AlertsSettings
     execution: ExecutionSettings
     secrets: dict[str, str]
 
@@ -84,11 +115,23 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
     resolved = _resolve_env_placeholders(raw)
     base_dir = path.parent.parent.resolve()
 
+    mode_raw = str(resolved.get("mode", RuntimeMode.PAPER.value)).strip().lower()
+    try:
+        mode = RuntimeMode(mode_raw)
+    except ValueError as exc:
+        raise ConfigError("Config field 'mode' must be either 'paper' or 'live'.") from exc
+
     service_raw = _require_mapping(resolved, "service")
     persistence_raw = _require_mapping(resolved, "persistence")
     operator_raw = _require_mapping(resolved, "operator_api")
     ibkr_raw = _require_mapping(resolved, "ibkr")
     execution_raw = _require_mapping(resolved, "execution")
+    alerts_raw = resolved.get("alerts") or {}
+    if not isinstance(alerts_raw, dict):
+        raise ConfigError("Config section 'alerts' must be a mapping when provided.")
+    telegram_raw = alerts_raw.get("telegram") or {}
+    if not isinstance(telegram_raw, dict):
+        raise ConfigError("Config section 'alerts.telegram' must be a mapping when provided.")
     secrets_raw = resolved.get("secrets") or {}
     if not isinstance(secrets_raw, dict):
         raise ConfigError("Config field 'secrets' must be a mapping when provided.")
@@ -104,15 +147,17 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
     )
     host = _require_non_empty_string(operator_raw, "operator_api.host")
     if host != "127.0.0.1":
-        raise ConfigError("operator_api.host must be exactly '127.0.0.1' for Phase 1+ runtime.")
+        raise ConfigError("operator_api.host must be exactly '127.0.0.1' for the runtime service.")
     port = _require_int(operator_raw, "operator_api.port", minimum=1, maximum=65535)
 
     ibkr_host = _require_non_empty_string(ibkr_raw, "ibkr.host")
-    ibkr_port = _require_int(ibkr_raw, "ibkr.port", minimum=1, maximum=65535)
     ibkr_account = ibkr_raw.get("account", "")
     if not isinstance(ibkr_account, str):
         raise ConfigError("Config field 'ibkr.account' must be a string.")
     ibkr_client_id = _require_int(ibkr_raw, "ibkr.client_id", minimum=0)
+    ibkr_port = 4001 if mode is RuntimeMode.LIVE else 4002
+    if mode is RuntimeMode.LIVE and not ibkr_account.strip():
+        raise ConfigError("Config field 'ibkr.account' must be non-empty when mode is 'live'.")
 
     loss_limit_abs = _require_number(execution_raw, "execution.daily_loss_limit_abs", minimum_exclusive=0.0)
     loss_limit_pct = _require_number(execution_raw, "execution.daily_loss_limit_pct", minimum_exclusive=0.0)
@@ -121,6 +166,12 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
     heartbeat_seconds = int(execution_raw.get("reconciliation_heartbeat_seconds", 30))
     if heartbeat_seconds <= 0:
         raise ConfigError("execution.reconciliation_heartbeat_seconds must be positive.")
+
+    telegram_enabled = bool(telegram_raw.get("enabled", False))
+    if not isinstance(telegram_raw.get("enabled", False), bool):
+        raise ConfigError("alerts.telegram.enabled must be a boolean when provided.")
+    bot_token = str(telegram_raw.get("bot_token", "") or "")
+    chat_id = str(telegram_raw.get("chat_id", "") or "")
 
     normalized_secrets: dict[str, str] = {}
     for key, value in secrets_raw.items():
@@ -131,6 +182,7 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
         normalized_secrets[str(key)] = value
 
     return AppConfig(
+        mode=mode,
         service=ServiceSettings(name=name),
         persistence=PersistenceSettings(sqlite_path=sqlite_path, audit_root=audit_root),
         operator_api=OperatorAPISettings(host=host, port=port),
@@ -139,6 +191,14 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
             port=ibkr_port,
             account=ibkr_account.strip(),
             client_id=ibkr_client_id,
+        ),
+        alerts=AlertsSettings(
+            log_path=(base_dir / "var" / "reports" / "alerts.log").resolve(),
+            telegram=TelegramAlertSettings(
+                enabled=telegram_enabled,
+                bot_token=bot_token,
+                chat_id=chat_id,
+            ),
         ),
         execution=ExecutionSettings(
             daily_loss_limit_abs=float(loss_limit_abs),

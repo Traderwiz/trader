@@ -1,3 +1,5 @@
+mode: paper
+
 service:
   name: traderd
 
@@ -11,9 +13,14 @@ operator_api:
 
 ibkr:
   host: 192.168.0.18
-  port: 4002
   account: ""
   client_id: 10
+
+alerts:
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
 
 execution:
   daily_loss_limit_abs: 30.0

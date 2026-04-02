@@ -1,8 +1,6 @@
-"""Integration tests for Phase 4 startup reconciliation behavior."""
+"""Integration tests for startup reconciliation behavior."""
 
 from __future__ import annotations
-
-from datetime import datetime, timezone
 
 from platform.bootstrap import bootstrap_service
 from platform.broker.base import AccountSummary, BrokerPosition
@@ -40,6 +38,8 @@ def test_startup_reconciliation_blocks_ready_on_material_mismatch(tmp_path, monk
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         f"""
+mode: paper
+
 service:
   name: traderd
 
@@ -53,9 +53,14 @@ operator_api:
 
 ibkr:
   host: 192.168.0.18
-  port: 4002
   account: ""
   client_id: 10
+
+alerts:
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
 
 execution:
   daily_loss_limit_abs: 30.0
@@ -66,8 +71,6 @@ secrets: {{}}
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setattr("platform.operator.api.OperatorAPIServer.start", lambda self: None)
-    monkeypatch.setattr("platform.operator.api.OperatorAPIServer.stop", lambda self: None)
     broker = SimulatedBrokerAdapter(
         account_summary=AccountSummary(cash=1000.0, net_liquidation_value=1000.0, buying_power=1000.0),
         positions=[BrokerPosition(instrument_id=instrument.instrument_id, quantity=1.0, average_price=100.0)],

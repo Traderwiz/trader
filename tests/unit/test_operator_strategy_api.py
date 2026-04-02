@@ -5,9 +5,14 @@ from __future__ import annotations
 import json
 import urllib.request
 import uuid
+
+import pytest
 from datetime import datetime, timezone
 
+from platform.backtest.reports import DriftFillComparison, build_drift_report
+from platform.config import TelegramAlertSettings
 from platform.models import RuntimeState, StrategyStage
+from platform.operator.alerts import AlertDispatcher
 from platform.operator.api import OperatorAPIServer
 from platform.operator.commands import OperatorCommandService
 from platform.persistence.audit_log import AuditLogWriter
@@ -17,9 +22,10 @@ from platform.state_machine import RuntimeStateMachine
 from platform.strategy.lifecycle import StrategyLifecycleManager
 from platform.strategy.registry import StrategyRegistry
 from platform.strategy.selector import PromotionSelector
+from platform.models import OrderSide
 
 
-def test_operator_api_promotes_demotes_and_audits_strategy_actions(tmp_path) -> None:
+def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_path) -> None:
     store = SQLiteOperationalStore(tmp_path / "var" / "state" / "control_plane.db")
     store.open()
     store.initialize()
@@ -31,6 +37,14 @@ def test_operator_api_promotes_demotes_and_audits_strategy_actions(tmp_path) -> 
     strategy_repo = StrategyRegistryRepository(store)
     registry = StrategyRegistry(strategy_repo)
     selector = PromotionSelector(strategy_repo, tmp_path / "var" / "reports")
+    drift_report = build_drift_report(
+        strategy_id="TrendFollower",
+        version="3.1.0",
+        comparisons=[
+            DriftFillComparison(fill_id="1", side=OrderSide.BUY, model_fill_price=100.0, actual_fill_price=100.2),
+            DriftFillComparison(fill_id="2", side=OrderSide.SELL, model_fill_price=100.0, actual_fill_price=99.9),
+        ],
+    )
     registry.register_strategy(
         strategy_id="TrendFollower",
         version="3.1.0",
@@ -64,6 +78,12 @@ def test_operator_api_promotes_demotes_and_audits_strategy_actions(tmp_path) -> 
         crisis_results={"2008": {"passed": True}, "2020": {"passed": True}, "2022": {"passed": True}},
         regime_suppression_comparison={"loss_delta": 12.0},
         gate_results={},
+        drift_report=drift_report,
+    )
+    dispatcher = AlertDispatcher(
+        log_path=tmp_path / "var" / "reports" / "alerts.log",
+        audit_log=audit_log,
+        telegram=TelegramAlertSettings(enabled=False, bot_token="", chat_id=""),
     )
     service = OperatorCommandService(
         run_id=str(uuid.uuid4()),
@@ -74,6 +94,12 @@ def test_operator_api_promotes_demotes_and_audits_strategy_actions(tmp_path) -> 
         reconciliation_token="token",
         strategy_registry_repository=strategy_repo,
         lifecycle_manager=StrategyLifecycleManager(),
+        alert_dispatcher=dispatcher,
+        drift_report_root=tmp_path / "var" / "reports",
+        mode="paper",
+        ibkr_host="192.168.0.18",
+        ibkr_port=4002,
+        ibkr_account="DU123456",
     )
     server = OperatorAPIServer(host="127.0.0.1", port=0, command_service=service)
     server.start()
@@ -82,8 +108,25 @@ def test_operator_api_promotes_demotes_and_audits_strategy_actions(tmp_path) -> 
         listed = _read_json(f"{base_url}/strategy/list")
         assert listed["strategies"][0]["current_stage"] == StrategyStage.BACKTEST.value
 
+        mode = _read_json(f"{base_url}/mode")
+        assert mode["mode"] == "paper"
+        assert mode["ibkr"]["host"] == "192.168.0.18"
+        assert mode["ibkr"]["port"] == 4002
+        assert mode["ibkr"]["account"] == "DU****56"
+
         bundle = _read_json(f"{base_url}/strategy/TrendFollower/bundle?version=3.1.0")
         assert bundle["bundle"]["strategy_id"] == "TrendFollower"
+        assert bundle["bundle"]["drift_report"]["mean_slippage_delta"] == pytest.approx(0.15)
+
+        drift = _read_json(f"{base_url}/strategy/TrendFollower/drift?version=3.1.0")
+        assert drift["drift_report"]["worst_case_slippage_delta"] == pytest.approx(0.2)
+
+        alert_response = _post_json(
+            f"{base_url}/alerts/test",
+            {"message": "api smoke test"},
+        )
+        assert alert_response["sinks"]["log"]["sent"] is True
+        assert "api smoke test" in (tmp_path / "var" / "reports" / "alerts.log").read_text(encoding="utf-8")
 
         promoted = _post_json(
             f"{base_url}/strategy/promote",
@@ -102,10 +145,11 @@ def test_operator_api_promotes_demotes_and_audits_strategy_actions(tmp_path) -> 
         )
         assert demoted["strategy"]["current_stage"] == StrategyStage.BACKTEST.value
 
-        audit_entries = service.get_recent_audit(limit=20)
+        audit_entries = service.get_recent_audit(limit=50)
         event_types = [entry["event_type"] for entry in audit_entries]
         assert "strategy.promoted" in event_types
         assert "strategy.demoted" in event_types
+        assert "operator.alert" in event_types
     finally:
         server.stop()
         store.close()

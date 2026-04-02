@@ -51,6 +51,7 @@ class PromotionBundle:
     crisis_results: dict[str, Any]
     regime_suppression_comparison: dict[str, Any]
     gate_results: dict[str, Any]
+    drift_report: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.strategy_id.strip():

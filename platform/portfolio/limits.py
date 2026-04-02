@@ -1,4 +1,4 @@
-"""Daily loss limit enforcement for the single-account Phase 4 runtime."""
+"""Daily loss limit enforcement for the single-account runtime."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from platform.models import RuntimeState
+from platform.operator.alerts import AlertDispatcher, AlertSeverity
 from platform.persistence.audit_log import AuditLogWriter
 from platform.persistence.repositories import ControlStateRepository
 from platform.portfolio.session_pnl import SessionPNLTracker
@@ -25,6 +26,7 @@ class DailyLossLimitEnforcer:
         state_machine: RuntimeStateMachine,
         audit_log: AuditLogWriter,
         on_breach: Callable[[], None] | None = None,
+        alert_dispatcher: AlertDispatcher | None = None,
     ) -> None:
         self._daily_loss_limit_abs = float(daily_loss_limit_abs)
         self._daily_loss_limit_pct = float(daily_loss_limit_pct)
@@ -33,6 +35,7 @@ class DailyLossLimitEnforcer:
         self._state_machine = state_machine
         self._audit_log = audit_log
         self._on_breach = on_breach
+        self._alert_dispatcher = alert_dispatcher
         self._breach_processed = False
 
     def set_on_breach(self, callback: Callable[[], None]) -> None:
@@ -90,5 +93,12 @@ class DailyLossLimitEnforcer:
                 "limit": self.current_limit(),
             },
         )
+        if self._alert_dispatcher is not None:
+            self._alert_dispatcher.send(
+                severity=AlertSeverity.CRITICAL,
+                event_type="risk.daily_loss_breach",
+                message=reason_text,
+                payload={"loss": self.current_loss(), "limit": self.current_limit()},
+            )
         if self._on_breach is not None:
             self._on_breach()

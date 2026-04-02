@@ -1,4 +1,4 @@
-"""Startup wiring for the runtime service including Phase 4 broker reconciliation."""
+"""Startup wiring for the runtime service including Phase 5 live-enablement hooks."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from platform.execution.price_sanity import OrderPriceSanityValidator, QuoteSnap
 from platform.execution.safety_stack import SafetyStack
 from platform.execution.service import ExecutionService
 from platform.models import Instrument, RuntimeState
+from platform.operator.alerts import AlertDispatcher, AlertSeverity, mask_account
 from platform.operator.api import OperatorAPIServer
 from platform.operator.commands import OperatorCommandService
 from platform.persistence.audit_log import AuditLogWriter
@@ -46,6 +47,7 @@ class BootstrapContext:
     execution_service: ExecutionService
     reconciliation_engine: ReconciliationEngine
     portfolio_ledger: PortfolioLedger
+    alert_dispatcher: AlertDispatcher
     started_at: datetime
 
     def shutdown(self) -> None:
@@ -57,6 +59,11 @@ class BootstrapContext:
                 actor="app",
                 reason_text="service shutdown requested",
             )
+        self.alert_dispatcher.send(
+            severity=AlertSeverity.INFO,
+            event_type="session.end",
+            message=f"Runtime shutting down in {self.config.mode.value} mode",
+        )
         self.operator_api.stop()
         self.broker_adapter.disconnect()
         self.store.close()
@@ -68,6 +75,7 @@ def bootstrap_service(
     broker_adapter: BrokerAdapter | None = None,
     instruments: dict[str, Instrument] | None = None,
     quote_provider: Callable[[str], QuoteSnapshot | None] | None = None,
+    alert_dispatcher: AlertDispatcher | None = None,
 ) -> BootstrapContext:
     """Construct and start the runtime service components."""
 
@@ -88,6 +96,26 @@ def bootstrap_service(
         index_repository=audit_index_repository,
         run_id=run_id,
     )
+    alerts = alert_dispatcher or AlertDispatcher(
+        log_path=config.alerts.log_path,
+        audit_log=audit_log,
+        telegram=config.alerts.telegram,
+    )
+    startup_message = (
+        f"Starting traderd in {config.mode.value} mode targeting "
+        f"{config.ibkr.host}:{config.ibkr.port} account={mask_account(config.ibkr.account)}"
+    )
+    print(startup_message, flush=True)
+    audit_log.append(
+        event_type="runtime.mode",
+        component="bootstrap",
+        payload={
+            "mode": config.mode.value,
+            "host": config.ibkr.host,
+            "port": config.ibkr.port,
+            "account": mask_account(config.ibkr.account),
+        },
+    )
     state_machine = RuntimeStateMachine(audit_log=audit_log, current_state=RuntimeState.STARTING)
     state_machine.transition(
         RuntimeState.RECONCILING,
@@ -102,7 +130,15 @@ def bootstrap_service(
         account=config.ibkr.account,
         instruments=instrument_catalog,
     )
-    adapter.connect()
+    try:
+        adapter.connect()
+    except Exception:
+        alerts.send(
+            severity=AlertSeverity.CRITICAL,
+            event_type="broker.connect_failed",
+            message=f"Failed to connect to IBKR at {config.ibkr.host}:{config.ibkr.port}",
+        )
+        raise
 
     session_pnl = SessionPNLTracker(store)
     portfolio_ledger = PortfolioLedger(instruments=instrument_catalog, session_pnl=session_pnl)
@@ -110,6 +146,7 @@ def bootstrap_service(
     reconciliation_engine = ReconciliationEngine(
         broker_adapter=adapter,
         audit_log=audit_log,
+        alert_dispatcher=alerts,
     )
     price_validator = OrderPriceSanityValidator(
         quote_provider=quote_provider or _build_quote_provider(adapter),
@@ -121,6 +158,7 @@ def bootstrap_service(
         control_state_repository=control_state_repository,
         state_machine=state_machine,
         audit_log=audit_log,
+        alert_dispatcher=alerts,
     )
     safety_stack = SafetyStack(
         control_state_repository=control_state_repository,
@@ -132,6 +170,7 @@ def bootstrap_service(
         broker_adapter=adapter,
         audit_log=audit_log,
         reconciliation_heartbeat_seconds=config.execution.reconciliation_heartbeat_seconds,
+        alert_dispatcher=alerts,
     )
     execution_service = ExecutionService(
         broker_adapter=adapter,
@@ -154,6 +193,13 @@ def bootstrap_service(
         reconciliation_token="",
         strategy_registry_repository=strategy_registry_repository,
         lifecycle_manager=StrategyLifecycleManager(),
+        alert_dispatcher=alerts,
+        reconciliation_checker=execution_service.run_reconciliation,
+        drift_report_root=config.alerts.log_path.parent,
+        mode=config.mode.value,
+        ibkr_host=config.ibkr.host,
+        ibkr_port=config.ibkr.port,
+        ibkr_account=config.ibkr.account,
     )
     command_service.rotate_reconciliation_token()
 
@@ -193,6 +239,15 @@ def bootstrap_service(
             reason_text=f"startup reconciliation completed with status={reconciliation_result.status.value}",
         )
 
+    alerts.send(
+        severity=AlertSeverity.INFO,
+        event_type="session.start",
+        message=(
+            f"Runtime entered {state_machine.current_state.value} in {config.mode.value} mode "
+            f"at {config.ibkr.host}:{config.ibkr.port} account={mask_account(config.ibkr.account)}"
+        ),
+    )
+
     operator_api = OperatorAPIServer(
         host=config.operator_api.host,
         port=config.operator_api.port,
@@ -214,6 +269,7 @@ def bootstrap_service(
         execution_service=execution_service,
         reconciliation_engine=reconciliation_engine,
         portfolio_ledger=portfolio_ledger,
+        alert_dispatcher=alerts,
         started_at=started_at,
     )
 

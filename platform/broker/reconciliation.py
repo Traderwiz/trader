@@ -8,11 +8,12 @@ from enum import StrEnum
 from typing import Callable
 
 from platform.broker.base import AccountSummary, BrokerAdapter, BrokerExecution, BrokerOrder, BrokerPosition
+from platform.operator.alerts import AlertDispatcher, AlertSeverity
 from platform.persistence.audit_log import AuditLogWriter
 
 
 class ReconciliationStatus(StrEnum):
-    """Allowed reconciliation outcomes for Phase 4."""
+    """Allowed reconciliation outcomes for runtime reconciliation."""
 
     CLEAN = "clean"
     IMMATERIAL = "immaterial"
@@ -68,10 +69,12 @@ class ReconciliationEngine:
         broker_adapter: BrokerAdapter,
         audit_log: AuditLogWriter | None = None,
         refresh_local_state: Callable[[BrokerStateSnapshot], None] | None = None,
+        alert_dispatcher: AlertDispatcher | None = None,
     ) -> None:
         self._broker_adapter = broker_adapter
         self._audit_log = audit_log
         self._refresh_local_state = refresh_local_state
+        self._alert_dispatcher = alert_dispatcher
         self.state = ReconciliationState()
 
     def set_refresh_local_state(self, callback: Callable[[BrokerStateSnapshot], None]) -> None:
@@ -105,6 +108,13 @@ class ReconciliationEngine:
                     "status": result.status.value,
                     "reasons": list(result.reasons),
                 },
+            )
+        if result.status is ReconciliationStatus.MATERIAL and self._alert_dispatcher is not None:
+            self._alert_dispatcher.send(
+                severity=AlertSeverity.CRITICAL,
+                event_type="reconciliation.material_mismatch",
+                message="Material reconciliation mismatch detected",
+                payload={"reasons": list(result.reasons)},
             )
         return result
 

@@ -375,6 +375,7 @@ class StrategyRegistryRepository:
             crisis_results=dict(payload["crisis_results"]),
             regime_suppression_comparison=dict(payload["regime_suppression_comparison"]),
             gate_results=dict(payload["gate_results"]),
+            drift_report=dict(payload.get("drift_report") or {}),
         )
 
 

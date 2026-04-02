@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from platform.backtest.reports import DriftReport, DriftReportStore
 from platform.models import PromotionBundle
 from platform.persistence.repositories import StrategyRegistryRepository
 
@@ -27,14 +28,25 @@ class PromotionSelector:
         crisis_results: dict[str, Any],
         regime_suppression_comparison: dict[str, Any],
         gate_results: dict[str, Any],
+        drift_report: DriftReport | None = None,
     ) -> PromotionBundle:
+        bundle_gate_results = dict(gate_results)
+        serialized_drift_report: dict[str, Any] = {}
+        if drift_report is not None:
+            DriftReportStore(self.report_root).write(drift_report)
+            serialized_drift_report = drift_report.to_dict()
+            paper_readiness = dict(bundle_gate_results.get("paper_readiness") or {})
+            paper_readiness.setdefault("drift_report", serialized_drift_report)
+            bundle_gate_results["paper_readiness"] = paper_readiness
+
         bundle = PromotionBundle(
             strategy_id=strategy_id,
             version=version,
             walkforward_results=walkforward_results,
             crisis_results=crisis_results,
             regime_suppression_comparison=regime_suppression_comparison,
-            gate_results=gate_results,
+            gate_results=bundle_gate_results,
+            drift_report=serialized_drift_report,
         )
         self.repository.store_bundle(bundle)
 
