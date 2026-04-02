@@ -123,3 +123,14 @@ When a phase is complete:
 ## Operator
 
 The operator is Greg. Greg is the architect and decision-maker. Codex is the implementer. Claude (Anthropic) is the reviewer. Greg relays review decisions between sessions. When in doubt about an architectural decision, stop and ask rather than assume.
+
+## Git discipline
+
+- Repository: git@github.com:Traderwiz/trader.git
+- Default branch: master
+- Every phase ends with a commit and push before the completion report is filed
+- Commit message format: `Phase N: short description` with bullet list of what was built
+- Never commit with failing tests
+- Never commit `__pycache__/`, `.venv/`, `var/`, or `.pytest_cache/` — covered by .gitignore
+- After every phase commit, push to origin before reporting completion
+- Use `git status` before committing to verify no unintended files are staged
