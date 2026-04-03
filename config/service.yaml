@@ -21,6 +21,11 @@ alerts:
     enabled: true
     bot_token: ${TELEGRAM_BOT_TOKEN}
     chat_id: ${TELEGRAM_CHAT_ID}
+  sms:
+    enabled: true
+    gmail_address: gregabernardi@gmail.com
+    gmail_password_env: GMAIL_APP_PASSWORD
+    to_address: 5198205485@msg.telus.com
 
 execution:
   daily_loss_limit_abs: 30.0

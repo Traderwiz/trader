@@ -121,6 +121,7 @@ def bootstrap_service(
         log_path=config.alerts.log_path,
         audit_log=audit_log,
         telegram=config.alerts.telegram,
+        sms=config.alerts.sms,
     )
     startup_message = (
         f"Starting traderd in {config.mode.value} mode targeting "
@@ -295,6 +296,7 @@ def bootstrap_service(
             f"Runtime entered {state_machine.current_state.value} in {config.mode.value} mode "
             f"at {config.ibkr.host}:{config.ibkr.port} account={mask_account(config.ibkr.account)}"
         ),
+        payload={"mode": config.mode.value},
     )
 
     operator_api = OperatorAPIServer(

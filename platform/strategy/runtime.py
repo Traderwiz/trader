@@ -449,7 +449,13 @@ class StrategyRuntimeService:
                 'strategy_id': record.strategy_id,
                 'version': record.version,
                 'reason': signal.reason,
+                'stage': record.current_stage.value,
                 'side': signal.side.value,
+                'signal_rsi_2': signal.metadata.get('signal_rsi_2'),
+                'signal_adx_14': signal.metadata.get('signal_adx_14'),
+                'rsi_2': signal.metadata.get('rsi_2'),
+                'days_held': signal.metadata.get('days_held'),
+                'reference_price': signal.metadata.get('reference_price'),
             },
         )
 

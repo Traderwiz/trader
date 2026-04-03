@@ -1,18 +1,24 @@
-"""Dispatches non-blocking operator alerts to log and optional Telegram sinks."""
+"""Dispatches non-blocking operator alerts to log, Telegram, and optional SMS sinks."""
 
 from __future__ import annotations
 
 import json
+import os
+import smtplib
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from platform.config import TelegramAlertSettings
+from platform.config import SMSAlertSettings, TelegramAlertSettings
 from platform.persistence.audit_log import AuditLogWriter
+
+
+_SMS_MAX_LENGTH = 160
 
 
 class AlertSeverity(StrEnum):
@@ -40,12 +46,107 @@ class AlertRecord:
 
 
 @dataclass
+class SMSDispatcher:
+    """Sends best-effort SMS alerts through the Telus email gateway."""
+
+    audit_log: AuditLogWriter
+    settings: SMSAlertSettings
+
+    def send(self, *, record: AlertRecord) -> dict[str, Any]:
+        """Attempt one SMS delivery and never raise to the caller."""
+
+        message = self._format_message(record)
+        if not message:
+            return {"sent": False, "skipped": True}
+
+        message = self._truncate(message)
+        try:
+            password = os.environ.get(self.settings.gmail_password_env, "").strip()
+            if not password:
+                raise RuntimeError(
+                    f"Required environment variable '{self.settings.gmail_password_env}' is not set."
+                )
+
+            payload = EmailMessage()
+            payload["Subject"] = ""
+            payload["From"] = self.settings.gmail_address
+            payload["To"] = self.settings.to_address
+            payload.set_content(message)
+
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=5) as smtp:
+                smtp.starttls()
+                smtp.login(self.settings.gmail_address, password)
+                smtp.send_message(payload)
+
+            result = {"sent": True, "message": message}
+        except Exception as exc:  # pragma: no cover - defensive hardening
+            result = {"sent": False, "error": str(exc), "message": message}
+
+        self._audit_delivery(record=record, result=result)
+        return result
+
+    def _format_message(self, record: AlertRecord) -> str:
+        payload = record.payload
+        if record.event_type == "strategy.signal":
+            reason = str(payload.get("reason", "")).strip()
+            mode = str(payload.get("stage", "PAPER") or "PAPER").upper()
+            if reason == "entry":
+                return (
+                    f"MES ENTRY signal fired. RSI:{_coerce_float(payload.get('signal_rsi_2')):.1f} "
+                    f"ADX:{_coerce_float(payload.get('signal_adx_14')):.1f} {mode}"
+                )
+            if reason == "profit_target":
+                return (
+                    f"MES EXIT profit target. RSI:{_coerce_float(payload.get('rsi_2')):.1f} "
+                    f"held {_coerce_int(payload.get('days_held'))}d {mode}"
+                )
+            if reason == "time_stop":
+                return f"MES EXIT time stop. Held {_coerce_int(payload.get('days_held'))}d {mode}"
+            if reason == "stop_loss":
+                return f"MES STOP LOSS hit at {_coerce_float(payload.get('reference_price')):.2f} {mode}"
+            return ""
+        if record.event_type == "halt.set":
+            return "TRADERD HALTED - check system"
+        if record.event_type == "risk.daily_loss_breach":
+            return "Daily loss limit breached - system halting"
+        if record.event_type == "session.start":
+            return f"Traderd started {str(payload.get('mode', 'PAPER')).upper()} mode"
+        if record.event_type == "session.end":
+            return "Traderd stopped"
+        if record.event_type == "broker.disconnect":
+            return "IBKR connection lost - check gateway"
+        return ""
+
+    def _audit_delivery(self, *, record: AlertRecord, result: dict[str, Any]) -> None:
+        try:
+            self.audit_log.append(
+                event_type="operator.alert_sms",
+                component="operator.alerts",
+                payload={
+                    "event_type": record.event_type,
+                    "severity": record.severity.value,
+                    "result": result,
+                },
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _truncate(message: str) -> str:
+        normalized = " ".join(message.split())
+        if len(normalized) <= _SMS_MAX_LENGTH:
+            return normalized
+        return normalized[:_SMS_MAX_LENGTH]
+
+
+@dataclass
 class AlertDispatcher:
     """Sends alerts without allowing sink failures to interrupt the runtime."""
 
     log_path: Path
     audit_log: AuditLogWriter
     telegram: TelegramAlertSettings
+    sms: SMSAlertSettings
 
     def send(
         self,
@@ -80,6 +181,11 @@ class AlertDispatcher:
                 sink_results["telegram"] = {"sent": False, "error": str(exc)}
         else:
             sink_results["telegram"] = {"sent": False, "skipped": True}
+
+        if self.sms.is_configured:
+            sink_results["sms"] = SMSDispatcher(audit_log=self.audit_log, settings=self.sms).send(record=record)
+        else:
+            sink_results["sms"] = {"sent": False, "skipped": True}
 
         try:
             self.audit_log.append(
@@ -147,3 +253,17 @@ def mask_account(account: str) -> str:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _coerce_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0

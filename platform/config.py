@@ -69,11 +69,26 @@ class TelegramAlertSettings:
 
 
 @dataclass(frozen=True)
+class SMSAlertSettings:
+    """Optional SMS alert sink configuration via email-to-SMS."""
+
+    enabled: bool
+    gmail_address: str
+    gmail_password_env: str
+    to_address: str
+
+    @property
+    def is_configured(self) -> bool:
+        return self.enabled and bool(self.gmail_address.strip()) and bool(self.gmail_password_env.strip()) and bool(self.to_address.strip())
+
+
+@dataclass(frozen=True)
 class AlertsSettings:
     """Alert sink configuration."""
 
     log_path: Path
     telegram: TelegramAlertSettings
+    sms: SMSAlertSettings
 
 
 @dataclass(frozen=True)
@@ -132,6 +147,9 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
     telegram_raw = alerts_raw.get("telegram") or {}
     if not isinstance(telegram_raw, dict):
         raise ConfigError("Config section 'alerts.telegram' must be a mapping when provided.")
+    sms_raw = alerts_raw.get("sms") or {}
+    if not isinstance(sms_raw, dict):
+        raise ConfigError("Config section 'alerts.sms' must be a mapping when provided.")
     secrets_raw = resolved.get("secrets") or {}
     if not isinstance(secrets_raw, dict):
         raise ConfigError("Config field 'secrets' must be a mapping when provided.")
@@ -173,6 +191,15 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
     bot_token = str(telegram_raw.get("bot_token", "") or "")
     chat_id = str(telegram_raw.get("chat_id", "") or "")
 
+    sms_enabled_raw = sms_raw.get("enabled", False)
+    if not isinstance(sms_enabled_raw, bool):
+        raise ConfigError("alerts.sms.enabled must be a boolean when provided.")
+    gmail_address_raw = sms_raw.get("gmail_address", "") or ""
+    gmail_password_env_raw = sms_raw.get("gmail_password_env", "") or ""
+    to_address_raw = sms_raw.get("to_address", "") or ""
+    if not all(isinstance(value, str) for value in (gmail_address_raw, gmail_password_env_raw, to_address_raw)):
+        raise ConfigError("alerts.sms.gmail_address, alerts.sms.gmail_password_env, and alerts.sms.to_address must be strings when provided.")
+
     normalized_secrets: dict[str, str] = {}
     for key, value in secrets_raw.items():
         if value is None:
@@ -198,6 +225,12 @@ def load_config(config_path: str | Path = "config/service.yaml") -> AppConfig:
                 enabled=telegram_enabled,
                 bot_token=bot_token,
                 chat_id=chat_id,
+            ),
+            sms=SMSAlertSettings(
+                enabled=sms_enabled_raw,
+                gmail_address=str(gmail_address_raw),
+                gmail_password_env=str(gmail_password_env_raw),
+                to_address=str(to_address_raw),
             ),
         ),
         execution=ExecutionSettings(

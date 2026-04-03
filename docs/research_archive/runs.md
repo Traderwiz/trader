@@ -56,3 +56,12 @@ This file is the chronological index of completed research runs. Dates are liste
 - Files modified: `config/service.yaml`, `platform/bootstrap.py`, `platform/broker/ibkr.py`, `platform/broker/simulator.py`, `platform/models/__init__.py`, `platform/models/strategy_registry.py`, `platform/operator/api.py`, `platform/operator/commands.py`, `platform/persistence/repositories.py`, `platform/persistence/sqlite.py`, `platform/strategy/lifecycle.py`, `platform/strategy/registry.py`, `platform/strategy/selector.py`, `tests/unit/test_operator_strategy_api.py`, `tests/unit/test_strategy_lifecycle.py`.
 - Verification: Full automated suite passed on 2026-04-02 via `/home/gabernardi/trader/.venv/bin/pytest tests/unit tests/integration tests/scenario -v` (62 passed). An operator-triggered paper daily-bar run also completed successfully against traderd and the IBKR paper gateway, processing the completed MES daily bar dated 2026-04-03T04:00:00Z with clean reconciliation and no signal emitted.
 - Commit hash: `043c7b3fe15a3e8492ab3630f93a8e90c884dff6`
+
+
+## Run 007
+
+- Date: 2026-04-02
+- Description: Added a second operator alert channel that sends backup SMS messages through Gmail SMTP to the Telus email-to-SMS gateway alongside the existing Telegram alerts.
+- What was built: Extended the runtime alert config with `alerts.sms`; added a best-effort `SMSDispatcher` using `smtplib` and Gmail STARTTLS; mapped entry, exit, halt, daily-loss, lifecycle, and broker-disconnect events to 160-character SMS templates; preserved non-blocking alert behavior and audit logging for both success and failure paths.
+- Files modified: `config/service.yaml`, `platform/bootstrap.py`, `platform/config.py`, `platform/operator/alerts.py`, `platform/strategy/runtime.py`, `tests/unit/test_alerts.py`, `tests/unit/test_config.py`, `tests/unit/test_operator_strategy_api.py`.
+- Verification: Unit coverage added for SMS config loading, SMS non-blocking failure handling, and SMS signal formatting/truncation. End-to-end verification requires a live Telus gateway test from `gregabernardi@gmail.com` using `GMAIL_APP_PASSWORD` plus operator confirmation that the SMS reached Greg's phone.

@@ -10,7 +10,7 @@ import pytest
 from datetime import datetime, timezone
 
 from platform.backtest.reports import DriftFillComparison, build_drift_report
-from platform.config import TelegramAlertSettings
+from platform.config import SMSAlertSettings, TelegramAlertSettings
 from platform.models import RuntimeState, StrategyStage
 from platform.operator.alerts import AlertDispatcher
 from platform.operator.api import OperatorAPIServer
@@ -84,6 +84,7 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         log_path=tmp_path / "var" / "reports" / "alerts.log",
         audit_log=audit_log,
         telegram=TelegramAlertSettings(enabled=False, bot_token="", chat_id=""),
+        sms=SMSAlertSettings(enabled=False, gmail_address="", gmail_password_env="", to_address=""),
     )
 
     class RuntimeStub:
