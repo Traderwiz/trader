@@ -506,8 +506,7 @@ def render_dashboard_html() -> str:
         lines.push(`Signals: ${Array.isArray(strategy.signals) ? strategy.signals.length : 0}`);
         lines.push(`Orders Submitted: ${Array.isArray(strategy.submitted_orders) ? strategy.submitted_orders.length : 0}`);
       }
-      runnerLog.textContent = lines.join("
-");
+      runnerLog.textContent = lines.join("\\n");
     }
 
     function renderNotes(data) {
