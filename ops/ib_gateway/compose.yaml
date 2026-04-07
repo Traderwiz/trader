@@ -1,0 +1,23 @@
+services:
+  ib-gateway:
+    image: gnzsnz/ib-gateway:stable
+    container_name: ib-gateway-paper
+    restart: unless-stopped
+    env_file:
+      - /home/gabernardi/.config/ib-gateway-paper.env
+    environment:
+      TRADING_MODE: paper
+      TIME_ZONE: America/Toronto
+      TWS_SETTINGS_PATH: /home/ibgateway/tws_settings
+      TWS_ACCEPT_INCOMING: accept
+      READ_ONLY_API: no
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+      AUTO_RESTART_TIME: 11:59 PM
+      EXISTING_SESSION_DETECTED_ACTION: primary
+      ALLOW_BLIND_TRADING: "no"
+    volumes:
+      - /home/gabernardi/.local/share/ib-gateway-paper/tws_settings:/home/ibgateway/tws_settings
+    ports:
+      - "127.0.0.1:4002:4004"
+      - "127.0.0.1:5900:5900"
