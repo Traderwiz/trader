@@ -4,11 +4,11 @@ from __future__ import annotations
 
 
 def render_dashboard_html() -> str:
-    return """<!doctype html>
-<html lang=\"en\">
+    return '''<!doctype html>
+<html lang="en">
 <head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>traderd Console</title>
   <style>
     :root {
@@ -324,191 +324,191 @@ def render_dashboard_html() -> str:
   </style>
 </head>
 <body>
-  <div class=\"shell\">
-    <section class=\"hero\">
-      <div class=\"panel headline\">
-        <div class=\"eyebrow\">Traderd Operator Console</div>
+  <div class="shell">
+    <section class="hero">
+      <div class="panel headline">
+        <div class="eyebrow">Traderd Operator Console</div>
         <h1>Paper Runtime<br />At A Glance</h1>
-        <div class=\"subhead\">
+        <div class="subhead">
           Local-only monitoring console for traderd. This surface is read-only and reflects the authoritative operator API state, strategy runtime state, recent audit entries, and the latest daily runner result.
         </div>
       </div>
-      <div class=\"panel pulse-grid\" id=\"pulse-grid\"></div>
+      <div class="panel pulse-grid" id="pulse-grid"></div>
     </section>
 
-    <section class=\"layout\">
-      <div class=\"stack\">
-        <section class=\"panel section\">
-          <div class=\"section-head\">
-            <h2 class=\"section-title\">Strategies</h2>
-            <div class=\"section-note\" id=\"refresh-note\">Loading</div>
+    <section class="layout">
+      <div class="stack">
+        <section class="panel section">
+          <div class="section-head">
+            <h2 class="section-title">Strategies</h2>
+            <div class="section-note" id="refresh-note">Loading</div>
           </div>
-          <div class=\"strategy-grid\" id=\"strategy-grid\"></div>
+          <div class="strategy-grid" id="strategy-grid"></div>
         </section>
 
-        <section class=\"panel section\">
-          <div class=\"section-head\">
-            <h2 class=\"section-title\">Recent Audit</h2>
-            <div class=\"section-note\">Last 20 events</div>
+        <section class="panel section">
+          <div class="section-head">
+            <h2 class="section-title">Recent Audit</h2>
+            <div class="section-note">Last 20 events</div>
           </div>
-          <div class=\"feed\" id=\"audit-feed\"></div>
+          <div class="feed" id="audit-feed"></div>
         </section>
       </div>
 
-      <div class=\"stack\">
-        <section class=\"panel section\">
-          <div class=\"section-head\">
-            <h2 class=\"section-title\">Daily Runner</h2>
-            <div class=\"section-note\">Most recent line</div>
+      <div class="stack">
+        <section class="panel section">
+          <div class="section-head">
+            <h2 class="section-title">Daily Runner</h2>
+            <div class="section-note">Most recent line</div>
           </div>
-          <div class=\"runner\" id=\"runner-log\"></div>
-          <div class=\"footer-note\">Source: <span style=\"font-family:var(--mono)\">var/logs/daily_runner.log</span></div>
+          <div class="runner" id="runner-log"></div>
+          <div class="footer-note">Source: <span style="font-family:var(--mono)">var/logs/daily_runner.log</span></div>
         </section>
 
-        <section class=\"panel section\">
-          <div class=\"section-head\">
-            <h2 class=\"section-title\">System Notes</h2>
-            <div class=\"section-note\">Read only</div>
+        <section class="panel section">
+          <div class="section-head">
+            <h2 class="section-title">System Notes</h2>
+            <div class="section-note">Read only</div>
           </div>
-          <div class=\"feed\" id=\"notes\"></div>
+          <div class="feed" id="notes"></div>
         </section>
       </div>
     </section>
   </div>
 
   <script>
-    const pulseGrid = document.getElementById( pulse-grid);
-    const strategyGrid = document.getElementById(strategy-grid);
-    const auditFeed = document.getElementById(audit-feed);
-    const runnerLog = document.getElementById(runner-log);
-    const refreshNote = document.getElementById(refresh-note);
-    const notes = document.getElementById(notes);
+    const pulseGrid = document.getElementById("pulse-grid");
+    const strategyGrid = document.getElementById("strategy-grid");
+    const auditFeed = document.getElementById("audit-feed");
+    const runnerLog = document.getElementById("runner-log");
+    const refreshNote = document.getElementById("refresh-note");
+    const notes = document.getElementById("notes");
 
     function fmt(value) {
-      if (value === null || value === undefined || value === ') return —;
-      if (typeof value === number) {
+      if (value === null || value === undefined || value === "") return "—";
+      if (typeof value === "number") {
         if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-        return value.toFixed(2).replace(/\.00$/, ');
+        return value.toFixed(2).replace(/\.00$/, "");
       }
-      if (typeof value === object) return JSON.stringify(value);
+      if (typeof value === "object") return JSON.stringify(value);
       return String(value);
     }
 
-    function badge(label, kind=') {
-      return `<span class=\"badge ${kind}\">${label}</span>`;
+    function badge(label, kind = "") {
+      return `<span class="badge ${kind}">${label}</span>`;
     }
 
     function statusKind(value) {
-      const raw = String(value || ').toUpperCase();
-      if (raw === READY || raw === PAPER || raw === LIVE || raw === CONNECTED) return ok;
-      if (raw === HALTED || raw === DISCONNECTED) return danger;
-      return warn;
+      const raw = String(value || "").toUpperCase();
+      if (raw === "READY" || raw === "PAPER" || raw === "LIVE" || raw === "CONNECTED") return "ok";
+      if (raw === "HALTED" || raw === "DISCONNECTED") return "danger";
+      return "warn";
     }
 
     function renderPulse(data) {
       const cards = [
         {
-          label: Runtime,
+          label: "Runtime",
           value: data.runtime.runtime_state,
           meta: `Uptime ${fmt(data.runtime.uptime_seconds)}s`,
         },
         {
-          label: IBKR Gateway,
-          value: data.broker.connected ? Connected : Disconnected,
+          label: "IBKR Gateway",
+          value: data.broker.connected ? "Connected" : "Disconnected",
           meta: `${data.mode.ibkr.host}:${data.mode.ibkr.port}`,
         },
         {
-          label: Mode,
+          label: "Mode",
           value: data.mode.mode,
           meta: `Run ${data.runtime.run_id}`,
         },
         {
-          label: Active Strategies,
+          label: "Active Strategies",
           value: data.summary.active_strategy_count,
           meta: `${data.summary.paper_strategy_count} paper / ${data.summary.live_strategy_count} live`,
         },
       ];
       pulseGrid.innerHTML = cards.map((card) => `
-        <div class=\"metric\">
-          <div class=\"metric-label\">${card.label}</div>
-          <div class=\"metric-value\">${fmt(card.value)}</div>
-          <div class=\"metric-meta\">${card.meta}</div>
+        <div class="metric">
+          <div class="metric-label">${card.label}</div>
+          <div class="metric-value">${fmt(card.value)}</div>
+          <div class="metric-meta">${card.meta}</div>
         </div>
-      `).join(');
+      `).join("");
     }
 
     function renderStrategies(data) {
       strategyGrid.innerHTML = data.strategies.map((strategy) => {
         const runtime = strategy.runtime_status || {};
         const tradeCount = (strategy.trades && strategy.trades.trades) ? strategy.trades.trades.length : 0;
-        const lastSignal = runtime.last_signal ? `${runtime.last_signal.reason || signal} / ${runtime.last_signal.side || '}` : none;
+        const lastSignal = runtime.last_signal ? `${runtime.last_signal.reason || "signal"} / ${runtime.last_signal.side || ""}` : "none";
         return `
-          <article class=\"strategy-card\">
-            <div class=\"strategy-top\">
+          <article class="strategy-card">
+            <div class="strategy-top">
               <div>
-                <div class=\"strategy-name\">${strategy.strategy_id}</div>
-                <div class=\"strategy-sub\">v${strategy.version} · ${strategy.description || No description}</div>
+                <div class="strategy-name">${strategy.strategy_id}</div>
+                <div class="strategy-sub">v${strategy.version} · ${strategy.description || "No description"}</div>
               </div>
-              <div class=\"badges\">
+              <div class="badges">
                 ${badge(strategy.current_stage, statusKind(strategy.current_stage))}
-                ${badge(runtime.current_position || unknown, runtime.current_position === long ? warn : ok)}
+                ${badge(runtime.current_position || "unknown", runtime.current_position === "long" ? "warn" : "ok")}
                 ${badge(`${tradeCount} trades`)}
               </div>
             </div>
-            <div class=\"kv-grid\">
-              <div class=\"kv\"><div class=\"kv-label\">Last Bar</div><div class=\"kv-value\">${fmt(runtime.last_bar_processed)}</div></div>
-              <div class=\"kv\"><div class=\"kv-label\">Days Held</div><div class=\"kv-value\">${fmt(runtime.days_held)}</div></div>
-              <div class=\"kv\"><div class=\"kv-label\">Last Signal</div><div class=\"kv-value\">${fmt(lastSignal)}</div></div>
-              <div class=\"kv\"><div class=\"kv-label\">RSI(2)</div><div class=\"kv-value\">${fmt(runtime.current_rsi_2)}</div></div>
-              <div class=\"kv\"><div class=\"kv-label\">ADX(14)</div><div class=\"kv-value\">${fmt(runtime.current_adx_14)}</div></div>
-              <div class=\"kv\"><div class=\"kv-label\">SMA(100)</div><div class=\"kv-value\">${fmt(runtime.current_sma_100)}</div></div>
+            <div class="kv-grid">
+              <div class="kv"><div class="kv-label">Last Bar</div><div class="kv-value">${fmt(runtime.last_bar_processed)}</div></div>
+              <div class="kv"><div class="kv-label">Days Held</div><div class="kv-value">${fmt(runtime.days_held)}</div></div>
+              <div class="kv"><div class="kv-label">Last Signal</div><div class="kv-value">${fmt(lastSignal)}</div></div>
+              <div class="kv"><div class="kv-label">RSI(2)</div><div class="kv-value">${fmt(runtime.current_rsi_2)}</div></div>
+              <div class="kv"><div class="kv-label">ADX(14)</div><div class="kv-value">${fmt(runtime.current_adx_14)}</div></div>
+              <div class="kv"><div class="kv-label">SMA(100)</div><div class="kv-value">${fmt(runtime.current_sma_100)}</div></div>
             </div>
           </article>
         `;
-      }).join(') || <div class=\feed-row\>No strategies found.</div>;
+      }).join("") || '<div class="feed-row">No strategies found.</div>';
     }
 
     function renderAudit(data) {
       auditFeed.innerHTML = data.audit.entries.map((entry) => `
-        <div class=\"feed-row\">
-          <div class=\"feed-top\">
-            <span class=\"feed-type\">${entry.event_type}</span>
+        <div class="feed-row">
+          <div class="feed-top">
+            <span class="feed-type">${entry.event_type}</span>
             <span>${entry.ts_utc}</span>
           </div>
-          <div class=\"feed-body\">${entry.component}${entry.strategy_id ? ` · ${entry.strategy_id}` : '}${entry.instrument_id ? ` · ${entry.instrument_id}` : '}\n${JSON.stringify(entry.payload)}</div>
+          <div class="feed-body">${entry.component}${entry.strategy_id ? ` · ${entry.strategy_id}` : ""}${entry.instrument_id ? ` · ${entry.instrument_id}` : ""}\n${JSON.stringify(entry.payload)}</div>
         </div>
-      `).join(') || <div class=\feed-row\>No audit entries.</div>;
+      `).join("") || '<div class="feed-row">No audit entries.</div>';
     }
 
     function renderNotes(data) {
       const items = [
-        { title: Broker Link, body: data.broker.connected ? traderd reports an active broker connection. : Broker adapter is disconnected from IBKR. },
-        { title: Halt State, body: data.runtime.halt_state.is_halted ? `HALTED: ${data.runtime.halt_state.halt_reason_code || '} ${data.runtime.halt_state.halt_reason_text || '}` : No halt is active. },
-        { title: Operator API, body: `Loopback API is serving on ${data.mode.ibkr.host === 127.0.0.1 ? the bot box locally : data.mode.ibkr.host}.` },
+        { title: "Broker Link", body: data.broker.connected ? "traderd reports an active broker connection." : "Broker adapter is disconnected from IBKR." },
+        { title: "Halt State", body: data.runtime.halt_state.is_halted ? `HALTED: ${data.runtime.halt_state.halt_reason_code || ""} ${data.runtime.halt_state.halt_reason_text || ""}` : "No halt is active." },
+        { title: "Operator API", body: `Loopback API is serving on ${data.mode.ibkr.host === "127.0.0.1" ? "the bot box locally" : data.mode.ibkr.host}.` },
       ];
       notes.innerHTML = items.map((item) => `
-        <div class=\"feed-row\">
-          <div class=\"feed-top\"><span class=\"feed-type\">${item.title}</span></div>
-          <div class=\"feed-body\">${item.body}</div>
+        <div class="feed-row">
+          <div class="feed-top"><span class="feed-type">${item.title}</span></div>
+          <div class="feed-body">${item.body}</div>
         </div>
-      `).join(');
+      `).join("");
     }
 
     async function load() {
-      refreshNote.textContent = Refreshing;
+      refreshNote.textContent = "Refreshing";
       try {
-        const response = await fetch(/dashboard, { cache: no-store });
+        const response = await fetch("/dashboard", { cache: "no-store" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         renderPulse(data);
         renderStrategies(data);
         renderAudit(data);
         renderNotes(data);
-        runnerLog.textContent = data.daily_runner.last_line || No daily runner log entries.;
+        runnerLog.textContent = data.daily_runner.last_line || "No daily runner log entries.";
         refreshNote.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
-        pulseGrid.innerHTML = `<div class=\"metric\"><div class=\"metric-label\">Console Error</div><div class=\"metric-value error\">Unavailable</div><div class=\"metric-meta\">${String(error)}</div></div>`;
-        refreshNote.textContent = Refresh failed;
+        pulseGrid.innerHTML = `<div class="metric"><div class="metric-label">Console Error</div><div class="metric-value error">Unavailable</div><div class="metric-meta">${String(error)}</div></div>`;
+        refreshNote.textContent = "Refresh failed";
       }
     }
 
@@ -517,4 +517,4 @@ def render_dashboard_html() -> str:
   </script>
 </body>
 </html>
-"""
+'''
