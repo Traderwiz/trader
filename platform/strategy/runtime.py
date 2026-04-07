@@ -101,6 +101,12 @@ class StrategyRuntimeService:
             'current_rsi_2': state.get('current_rsi_2'),
             'current_adx_14': state.get('current_adx_14'),
             'current_sma_100': state.get('current_sma_100'),
+            'last_close': state.get('last_close'),
+            'last_high': state.get('last_high'),
+            'last_low': state.get('last_low'),
+            'entry_price': state.get('entry_price'),
+            'pending_entry': bool(state.get('pending_entry', False)),
+            'pending_exit_reason': state.get('pending_exit_reason'),
             'last_signal': state.get('last_signal'),
         }
 
@@ -387,6 +393,10 @@ class StrategyRuntimeService:
             'current_rsi_2': getattr(getattr(strategy, 'rsi_2', None), 'value', None),
             'current_adx_14': getattr(getattr(strategy, 'adx_14', None), 'value', None),
             'current_sma_100': getattr(getattr(strategy, 'sma_100', None), 'value', None),
+            'last_open': bar.open,
+            'last_high': bar.high,
+            'last_low': bar.low,
+            'last_close': bar.close,
             'last_signal': last_signal,
             'open_trade': open_trade,
         }

@@ -317,6 +317,48 @@ def render_dashboard_html() -> str:
       display: none;
     }
 
+    .trigger-box {
+      margin: 0 18px 18px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.52);
+    }
+
+    .trigger-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .trigger-summary {
+      font-size: 15px;
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+
+    .trigger-list { display: grid; gap: 8px; }
+
+    .trigger-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(245, 240, 230, 0.88);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .trigger-state { font-weight: 700; }
+    .trigger-state.ok { color: var(--accent); }
+    .trigger-state.warn { color: var(--warn); }
+
     .runner {
       font-family: var(--mono);
       font-size: 12px;
@@ -329,6 +371,68 @@ def render_dashboard_html() -> str:
       background: rgba(24, 32, 38, 0.92);
       color: #e9f4ef;
       min-height: 120px;
+    }
+
+    .actions-grid { display: grid; gap: 12px; }
+    .action-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255,255,255,0.56);
+      display: grid;
+      gap: 10px;
+    }
+
+    .action-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .field-grid.single { grid-template-columns: 1fr; }
+    .field-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 5px;
+      display: block;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 11px;
+      font: inherit;
+      background: rgba(245, 240, 230, 0.88);
+      color: var(--ink);
+    }
+
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 14px;
+      font: inherit;
+      font-weight: 700;
+      background: var(--ink);
+      color: white;
+      cursor: pointer;
+    }
+
+    button.secondary { background: #4d5a64; }
+    button.warn { background: var(--warn); }
+    button.danger { background: var(--danger); }
+    button:disabled { opacity: 0.6; cursor: wait; }
+
+    .action-status {
+      min-height: 18px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+      white-space: pre-wrap;
     }
 
     .footer-note {
@@ -345,6 +449,7 @@ def render_dashboard_html() -> str:
     @media (max-width: 1080px) {
       .hero, .layout { grid-template-columns: 1fr; }
       .kv-grid { grid-template-columns: repeat(2, 1fr); }
+      .field-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 700px) {
@@ -396,6 +501,45 @@ def render_dashboard_html() -> str:
       <div class="stack">
         <section class="panel section">
           <div class="section-head">
+            <h2 class="section-title">Operator Actions</h2>
+            <div class="section-note">Uses existing API</div>
+          </div>
+          <div class="actions-grid">
+            <div class="action-card">
+              <div class="action-title">Common Operator Identity</div>
+              <div class="field-grid single">
+                <label><span class="field-label">Issued By</span><input id="issued-by" value="operator-ui" /></label>
+              </div>
+            </div>
+            <div class="action-card">
+              <div class="action-title">Health Checks</div>
+              <div class="field-grid single">
+                <button class="secondary" id="send-test-alert">Send Test Alert</button>
+                <button id="run-daily-bars">Run Daily Bars</button>
+              </div>
+            </div>
+            <div class="action-card">
+              <div class="action-title">Emergency Halt</div>
+              <div class="field-grid">
+                <label><span class="field-label">Reason Code</span><input id="halt-code" value="OPERATOR_HALT" /></label>
+                <label><span class="field-label">Reason Text</span><input id="halt-text" value="Manual operator halt from dashboard" /></label>
+              </div>
+              <button class="danger" id="halt-runtime">Halt Runtime</button>
+            </div>
+            <div class="action-card">
+              <div class="action-title">Clear Halt</div>
+              <div class="field-grid single">
+                <label><span class="field-label">Reason Text</span><input id="clear-text" value="Dashboard clear halt after operator review" /></label>
+                <label><span class="field-label">Reconciliation Token</span><input id="clear-token" placeholder="Paste reconciliation token" /></label>
+              </div>
+              <button class="warn" id="clear-halt">Clear Halt</button>
+            </div>
+            <div class="action-status" id="action-status"></div>
+          </div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
             <h2 class="section-title">Daily Runner</h2>
             <div class="section-note" id="runner-note">Most recent line</div>
           </div>
@@ -423,6 +567,7 @@ def render_dashboard_html() -> str:
     const runnerNote = document.getElementById("runner-note");
     const refreshNote = document.getElementById("refresh-note");
     const notes = document.getElementById("notes");
+    const actionStatus = document.getElementById("action-status");
 
     function fmt(value) {
       if (value === null || value === undefined || value === "") return "—";
@@ -463,6 +608,67 @@ def render_dashboard_html() -> str:
       if (["READY", "PAPER", "LIVE", "CONNECTED", "RUNNING", "SMS"].includes(raw)) return "ok";
       if (["HALTED", "DISCONNECTED", "UNAVAILABLE"].includes(raw)) return "danger";
       return "warn";
+    }
+
+    function stateWord(passed) {
+      return passed ? "Met" : "Waiting";
+    }
+
+    function stateKind(passed) {
+      return passed ? "ok" : "warn";
+    }
+
+    function latestClose(data, strategy) {
+      const runtime = strategy.runtime_status || {};
+      if (runtime.last_close !== null && runtime.last_close !== undefined) return Number(runtime.last_close);
+      const result = data.daily_runner && data.daily_runner.last_result ? data.daily_runner.last_result : null;
+      const deliveries = result && Array.isArray(result.deliveries) ? result.deliveries : [];
+      const match = deliveries.find((item) => item.instrument_id === strategy.allowed_instruments[0]);
+      return match ? Number(match.close) : Number(runtime.last_close);
+    }
+
+    function getReadiness(strategy, data) {
+      const runtime = strategy.runtime_status || {};
+      const params = strategy.parameters || {};
+      const lastClose = latestClose(data, strategy);
+      const sma = Number(runtime.current_sma_100);
+      const adx = Number(runtime.current_adx_14);
+      const rsi = Number(runtime.current_rsi_2);
+      const daysHeld = Number(runtime.days_held || 0);
+      const entryPrice = Number(runtime.entry_price);
+      const adxMin = Number(params.adx_min || 20);
+      const rsiEntry = Number(params.rsi_entry || 25);
+      const rsiExit = Number(params.rsi_exit || 75);
+      const maxHoldDays = Number(params.max_hold_days || 10);
+      const stopLossPct = Number(params.stop_loss_pct || 0.01);
+
+      if ((runtime.current_position || "flat") === "long") {
+        const stopPrice = Number.isFinite(entryPrice) ? entryPrice * (1 - stopLossPct) : NaN;
+        const checks = [
+          { label: `RSI(2) > ${fmt(rsiExit)}`, detail: `Current ${fmt(rsi)} · gap ${fmt(rsiExit - rsi)}`, passed: Number.isFinite(rsi) && rsi > rsiExit },
+          { label: `Days held >= ${fmt(maxHoldDays)}`, detail: `Current ${fmt(daysHeld)} · remaining ${fmt(maxHoldDays - daysHeld)}`, passed: daysHeld >= maxHoldDays },
+          { label: `Close > stop ${fmt(stopPrice)}`, detail: `Current close ${fmt(lastClose)} · cushion ${fmt(lastClose - stopPrice)}`, passed: Number.isFinite(lastClose) && Number.isFinite(stopPrice) && lastClose > stopPrice },
+        ];
+        return {
+          headline: checks.some((item) => item.passed) ? "An exit trigger is close or active." : "No exit trigger is active yet.",
+          badge: checks.some((item) => item.passed) ? "Exit Watch" : "In Position",
+          badgeKind: checks.some((item) => item.passed) ? "warn" : "ok",
+          checks,
+        };
+      }
+
+      const checks = [
+        { label: `ADX(14) >= ${fmt(adxMin)}`, detail: `Current ${fmt(adx)} · gap ${fmt(adxMin - adx)}`, passed: Number.isFinite(adx) && adx >= adxMin },
+        { label: `Close > SMA(100)`, detail: `Close ${fmt(lastClose)} vs SMA ${fmt(sma)} · gap ${fmt(lastClose - sma)}`, passed: Number.isFinite(lastClose) && Number.isFinite(sma) && lastClose > sma },
+        { label: `RSI(2) < ${fmt(rsiEntry)}`, detail: `Current ${fmt(rsi)} · gap ${fmt(rsi - rsiEntry)}`, passed: Number.isFinite(rsi) && rsi < rsiEntry },
+      ];
+      const met = checks.filter((item) => item.passed).length;
+      return {
+        headline: `Entry setup: ${met}/3 conditions met.`,
+        badge: met === 3 ? "Entry Ready" : "Entry Watch",
+        badgeKind: met === 3 ? "ok" : "warn",
+        checks,
+      };
     }
 
     function renderPulse(data) {
@@ -514,6 +720,8 @@ def render_dashboard_html() -> str:
         const runtime = strategy.runtime_status || {};
         const tradeCount = (strategy.trades && strategy.trades.trades) ? strategy.trades.trades.length : 0;
         const lastSignal = runtime.last_signal ? `${runtime.last_signal.reason || "signal"} / ${runtime.last_signal.side || ""}` : "none";
+        const readiness = getReadiness(strategy, data);
+        const displayClose = latestClose(data, strategy);
         return `
           <article class="strategy-card">
             <div class="strategy-top">
@@ -531,9 +739,27 @@ def render_dashboard_html() -> str:
               <div class="kv"><div class="kv-label">Last Bar</div><div class="kv-value">${fmt(runtime.last_bar_processed)}</div></div>
               <div class="kv"><div class="kv-label">Days Held</div><div class="kv-value">${fmt(runtime.days_held)}</div></div>
               <div class="kv"><div class="kv-label">Last Signal</div><div class="kv-value">${fmt(lastSignal)}</div></div>
+              <div class="kv"><div class="kv-label">Close</div><div class="kv-value">${fmt(displayClose)}</div></div>
               <div class="kv"><div class="kv-label">RSI(2)</div><div class="kv-value">${fmt(runtime.current_rsi_2)}</div></div>
               <div class="kv"><div class="kv-label">ADX(14)</div><div class="kv-value">${fmt(runtime.current_adx_14)}</div></div>
               <div class="kv"><div class="kv-label">SMA(100)</div><div class="kv-value">${fmt(runtime.current_sma_100)}</div></div>
+              <div class="kv"><div class="kv-label">Entry Price</div><div class="kv-value">${fmt(runtime.entry_price)}</div></div>
+              <div class="kv"><div class="kv-label">Pending Exit</div><div class="kv-value">${fmt(runtime.pending_exit_reason || "none")}</div></div>
+            </div>
+            <div class="trigger-box">
+              <div class="trigger-title">
+                <span>Strategy Readiness</span>
+                ${badge(readiness.badge, readiness.badgeKind)}
+              </div>
+              <div class="trigger-summary">${readiness.headline}</div>
+              <div class="trigger-list">
+                ${readiness.checks.map((item) => `
+                  <div class="trigger-item">
+                    <div><strong>${item.label}</strong><br />${item.detail}</div>
+                    <div class="trigger-state ${stateKind(item.passed)}">${stateWord(item.passed)}</div>
+                  </div>
+                `).join("")}
+              </div>
             </div>
           </article>
         `;
@@ -710,6 +936,62 @@ def render_dashboard_html() -> str:
         </div>
       `).join("");
     }
+
+    function issuedBy() {
+      return document.getElementById("issued-by").value.trim() || "operator-ui";
+    }
+
+    function setActionStatus(message, isError = false) {
+      actionStatus.textContent = message;
+      actionStatus.className = `action-status${isError ? ' error' : ''}`;
+    }
+
+    async function postAction(path, body, button) {
+      const original = button.textContent;
+      button.disabled = true;
+      setActionStatus(`Running ${path} ...`);
+      try {
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        setActionStatus(`${path} completed.
+${JSON.stringify(payload, null, 2)}`);
+        await load();
+      } catch (error) {
+        setActionStatus(String(error), true);
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+
+    document.getElementById("send-test-alert").addEventListener("click", async (event) => {
+      await postAction("/alerts/test", { message: "Dashboard operator test alert" }, event.currentTarget);
+    });
+
+    document.getElementById("run-daily-bars").addEventListener("click", async (event) => {
+      await postAction("/daily-bars/run", { issued_by: issuedBy() }, event.currentTarget);
+    });
+
+    document.getElementById("halt-runtime").addEventListener("click", async (event) => {
+      await postAction("/halt", {
+        issued_by: issuedBy(),
+        reason_code: document.getElementById("halt-code").value.trim() || "OPERATOR_HALT",
+        reason_text: document.getElementById("halt-text").value.trim() || "Manual operator halt from dashboard",
+      }, event.currentTarget);
+    });
+
+    document.getElementById("clear-halt").addEventListener("click", async (event) => {
+      await postAction("/clear-halt", {
+        issued_by: issuedBy(),
+        reason_text: document.getElementById("clear-text").value.trim() || "Dashboard clear halt after operator review",
+        reconciliation_token: document.getElementById("clear-token").value.trim(),
+      }, event.currentTarget);
+    });
 
     async function load() {
       refreshNote.textContent = "Refreshing";

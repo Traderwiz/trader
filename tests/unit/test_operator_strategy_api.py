@@ -102,6 +102,12 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
                 "current_rsi_2": 22.5,
                 "current_adx_14": 25.0,
                 "current_sma_100": 6100.0,
+                "last_close": 6125.0,
+                "last_high": 6130.0,
+                "last_low": 6090.0,
+                "entry_price": None,
+                "pending_entry": False,
+                "pending_exit_reason": None,
                 "last_signal": {"reason": "entry", "side": "LONG"},
             }
 
@@ -170,6 +176,8 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
             html = response.read().decode("utf-8")
         assert "Traderd Operator Console" in html
         assert "Paper Runtime" in html
+        assert "Operator Actions" in html
+        assert "Strategy Readiness" in html
 
         status = _read_json(f"{base_url}/strategy/TrendFollower/status")
         assert status["current_position"] == "flat"
