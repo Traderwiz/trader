@@ -250,6 +250,8 @@ def bootstrap_service(
         ibkr_account=config.ibkr.account,
         strategy_runtime_service=strategy_runtime_service,
         daily_bar_runner=daily_bar_runner,
+        broker_connected_provider=adapter.is_connected,
+        daily_runner_log_path=config_file.parent.parent / "var" / "logs" / "daily_runner.log",
     )
     command_service.rotate_reconciliation_token()
 

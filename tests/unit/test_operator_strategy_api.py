@@ -86,6 +86,9 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         telegram=TelegramAlertSettings(enabled=False, bot_token="", chat_id=""),
         sms=SMSAlertSettings(enabled=False, gmail_address="", gmail_password_env="", to_address=""),
     )
+    daily_runner_log = tmp_path / "var" / "logs" / "daily_runner.log"
+    daily_runner_log.parent.mkdir(parents=True, exist_ok=True)
+    daily_runner_log.write_text('{"status":"ok","deliveries":[]}\n', encoding="utf-8")
 
     class RuntimeStub:
         def get_strategy_status(self, strategy_id: str) -> dict[str, object]:
@@ -135,6 +138,8 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         ibkr_port=4002,
         ibkr_account="DU123456",
         strategy_runtime_service=RuntimeStub(),
+        broker_connected_provider=lambda: True,
+        daily_runner_log_path=daily_runner_log,
     )
     server = OperatorAPIServer(host="127.0.0.1", port=0, command_service=service)
     server.start()
@@ -148,6 +153,16 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         assert mode["ibkr"]["host"] == "192.168.0.18"
         assert mode["ibkr"]["port"] == 4002
         assert mode["ibkr"]["account"] == "DU****56"
+
+        dashboard = _read_json(f"{base_url}/dashboard")
+        assert dashboard["broker"]["connected"] is True
+        assert dashboard["daily_runner"]["last_line"] == '{"status":"ok","deliveries":[]}'
+        assert dashboard["summary"]["strategy_count"] == 1
+
+        with urllib.request.urlopen(f"{base_url}/") as response:
+            html = response.read().decode("utf-8")
+        assert "Traderd Operator Console" in html
+        assert "Paper Runtime" in html
 
         status = _read_json(f"{base_url}/strategy/TrendFollower/status")
         assert status["current_position"] == "flat"

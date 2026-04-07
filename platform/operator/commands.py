@@ -42,6 +42,8 @@ class OperatorCommandService:
     ibkr_account: str = ""
     strategy_runtime_service: Any | None = None
     daily_bar_runner: Any | None = None
+    broker_connected_provider: Callable[[], bool] | None = None
+    daily_runner_log_path: Path | None = None
 
     def get_status(self) -> dict[str, Any]:
         """Return runtime and persistent halt status."""
@@ -64,6 +66,59 @@ class OperatorCommandService:
                 "host": self.ibkr_host,
                 "port": self.ibkr_port,
                 "account": mask_account(self.ibkr_account),
+            },
+        }
+
+    def get_dashboard(self) -> dict[str, Any]:
+        """Return one aggregated payload for the local operator dashboard."""
+
+        strategies = self.list_strategies()
+        dashboard_strategies: list[dict[str, Any]] = []
+        paper_count = 0
+        live_count = 0
+        active_count = 0
+        for record in strategies:
+            stage = str(record.get("current_stage", ""))
+            if stage == StrategyStage.PAPER.value:
+                paper_count += 1
+            if stage == StrategyStage.LIVE.value:
+                live_count += 1
+            runtime_status: dict[str, Any] | None = None
+            trades: dict[str, Any] | None = None
+            if stage in {StrategyStage.PAPER.value, StrategyStage.LIVE.value} and self.strategy_runtime_service is not None:
+                active_count += 1
+                try:
+                    runtime_status = self.get_strategy_status(strategy_id=str(record["strategy_id"]))
+                    trades = self.get_strategy_trades(strategy_id=str(record["strategy_id"]))
+                except OperatorCommandError:
+                    runtime_status = None
+                    trades = None
+            dashboard_strategies.append(
+                {
+                    **record,
+                    "runtime_status": runtime_status,
+                    "trades": trades,
+                }
+            )
+
+        return {
+            "runtime": self.get_status(),
+            "mode": self.get_mode_info(),
+            "broker": {
+                "connected": self._broker_connected(),
+            },
+            "summary": {
+                "strategy_count": len(strategies),
+                "paper_strategy_count": paper_count,
+                "live_strategy_count": live_count,
+                "active_strategy_count": active_count,
+            },
+            "strategies": dashboard_strategies,
+            "audit": {
+                "entries": self.get_recent_audit(limit=20),
+            },
+            "daily_runner": {
+                "last_line": self._read_daily_runner_tail(),
             },
         }
 
@@ -385,6 +440,22 @@ class OperatorCommandService:
             message=message,
             payload=payload,
         )
+
+    def _broker_connected(self) -> bool:
+        if self.broker_connected_provider is None:
+            return False
+        try:
+            return bool(self.broker_connected_provider())
+        except Exception:
+            return False
+
+    def _read_daily_runner_tail(self) -> str:
+        if self.daily_runner_log_path is None or not self.daily_runner_log_path.exists():
+            return ""
+        text = self.daily_runner_log_path.read_text(encoding="utf-8").strip()
+        if not text:
+            return ""
+        return text.splitlines()[-1]
 
     def _require_strategy_registry(self) -> StrategyRegistryRepository:
         if self.strategy_registry_repository is None:

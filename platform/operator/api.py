@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from platform.models import StrategyStage
 from platform.operator.commands import OperatorCommandError, OperatorCommandService
+from platform.operator.dashboard import render_dashboard_html
 from platform.strategy.lifecycle import LifecycleError
 
 
@@ -52,6 +53,12 @@ class OperatorAPIServer:
 
             def do_GET(self) -> None:  # noqa: N802
                 parsed = urlparse(self.path)
+                if parsed.path in {"/", "/ui"}:
+                    self._write_html(HTTPStatus.OK, render_dashboard_html())
+                    return
+                if parsed.path == "/dashboard":
+                    self._write_json(HTTPStatus.OK, command_service.get_dashboard())
+                    return
                 if parsed.path == "/status":
                     self._write_json(HTTPStatus.OK, command_service.get_status())
                     return
@@ -212,6 +219,14 @@ class OperatorAPIServer:
                 body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _write_html(self, status: HTTPStatus, payload: str) -> None:
+                body = payload.encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
