@@ -157,6 +157,7 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         dashboard = _read_json(f"{base_url}/dashboard")
         assert dashboard["broker"]["connected"] is True
         assert dashboard["daily_runner"]["last_line"] == '{"status":"ok","deliveries":[]}'
+        assert dashboard["daily_runner"]["last_result"]["status"] == "ok"
         assert dashboard["summary"]["strategy_count"] == 1
 
         with urllib.request.urlopen(f"{base_url}/") as response:

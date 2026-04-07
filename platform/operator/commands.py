@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -117,9 +118,7 @@ class OperatorCommandService:
             "audit": {
                 "entries": self.get_recent_audit(limit=20),
             },
-            "daily_runner": {
-                "last_line": self._read_daily_runner_tail(),
-            },
+            "daily_runner": self._read_daily_runner_status(),
         }
 
     def halt(self, *, issued_by: str, reason_code: str, reason_text: str) -> dict[str, Any]:
@@ -449,13 +448,20 @@ class OperatorCommandService:
         except Exception:
             return False
 
-    def _read_daily_runner_tail(self) -> str:
+    def _read_daily_runner_status(self) -> dict[str, Any]:
         if self.daily_runner_log_path is None or not self.daily_runner_log_path.exists():
-            return ""
+            return {"last_line": "", "last_result": None}
         text = self.daily_runner_log_path.read_text(encoding="utf-8").strip()
         if not text:
-            return ""
-        return text.splitlines()[-1]
+            return {"last_line": "", "last_result": None}
+        last_line = text.splitlines()[-1]
+        try:
+            parsed = json.loads(last_line)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            parsed = None
+        return {"last_line": last_line, "last_result": parsed}
 
     def _require_strategy_registry(self) -> StrategyRegistryRepository:
         if self.strategy_registry_repository is None:

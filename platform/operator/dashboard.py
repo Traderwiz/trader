@@ -480,6 +480,36 @@ def render_dashboard_html() -> str:
       `).join("") || '<div class="feed-row">No audit entries.</div>';
     }
 
+    function renderDailyRunner(data) {
+      const result = data.daily_runner.last_result;
+      if (!result) {
+        runnerLog.textContent = data.daily_runner.last_line || "No daily runner log entries.";
+        return;
+      }
+      const deliveries = Array.isArray(result.deliveries) ? result.deliveries : [];
+      const delivery = deliveries[0] || null;
+      const strategy = delivery && Array.isArray(delivery.strategies) ? delivery.strategies[0] || null : null;
+      const lines = [
+        `Status: ${fmt(result.status)}`,
+        `Issued By: ${fmt(result.issued_by)}`,
+        `Reconciliation: ${fmt(result.reconciliation_status)}`,
+        `Deliveries: ${deliveries.length}`,
+      ];
+      if (delivery) {
+        lines.push(`Instrument: ${fmt(delivery.instrument_id)}`);
+        lines.push(`Bar Time: ${fmt(delivery.bar_ts)}`);
+        lines.push(`OHLC: ${fmt(delivery.open)} / ${fmt(delivery.high)} / ${fmt(delivery.low)} / ${fmt(delivery.close)}`);
+        lines.push(`Volume: ${fmt(delivery.volume)}`);
+      }
+      if (strategy) {
+        lines.push(`Strategy: ${fmt(strategy.strategy_id)} v${fmt(strategy.version)}`);
+        lines.push(`Signals: ${Array.isArray(strategy.signals) ? strategy.signals.length : 0}`);
+        lines.push(`Orders Submitted: ${Array.isArray(strategy.submitted_orders) ? strategy.submitted_orders.length : 0}`);
+      }
+      runnerLog.textContent = lines.join("
+");
+    }
+
     function renderNotes(data) {
       const items = [
         { title: "Broker Link", body: data.broker.connected ? "traderd reports an active broker connection." : "Broker adapter is disconnected from IBKR." },
@@ -504,7 +534,7 @@ def render_dashboard_html() -> str:
         renderStrategies(data);
         renderAudit(data);
         renderNotes(data);
-        runnerLog.textContent = data.daily_runner.last_line || "No daily runner log entries.";
+        renderDailyRunner(data);
         refreshNote.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
         pulseGrid.innerHTML = `<div class="metric"><div class="metric-label">Console Error</div><div class="metric-value error">Unavailable</div><div class="metric-meta">${String(error)}</div></div>`;
