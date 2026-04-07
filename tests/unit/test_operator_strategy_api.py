@@ -139,6 +139,7 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
         ibkr_account="DU123456",
         strategy_runtime_service=RuntimeStub(),
         broker_connected_provider=lambda: True,
+        gateway_health_provider=lambda: {"available": True, "container": "ib-gateway-paper", "running": True, "status": "running", "started_at": "2026-04-07T15:05:35Z", "restart_count": 0},
         daily_runner_log_path=daily_runner_log,
     )
     server = OperatorAPIServer(host="127.0.0.1", port=0, command_service=service)
@@ -156,8 +157,13 @@ def test_operator_api_promotes_demotes_reports_mode_and_dispatches_alerts(tmp_pa
 
         dashboard = _read_json(f"{base_url}/dashboard")
         assert dashboard["broker"]["connected"] is True
+        assert dashboard["gateway"]["running"] is True
+        assert dashboard["alerts"]["telegram_enabled"] is False
+        assert dashboard["alerts"]["sms_enabled"] is False
         assert dashboard["daily_runner"]["last_line"] == '{"status":"ok","deliveries":[]}'
         assert dashboard["daily_runner"]["last_result"]["status"] == "ok"
+        assert dashboard["daily_runner"]["last_updated_at"].endswith("Z")
+        assert dashboard["daily_runner"]["last_success_at"] == dashboard["daily_runner"]["last_updated_at"]
         assert dashboard["summary"]["strategy_count"] == 1
 
         with urllib.request.urlopen(f"{base_url}/") as response:

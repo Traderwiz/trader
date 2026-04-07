@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -251,6 +253,7 @@ def bootstrap_service(
         strategy_runtime_service=strategy_runtime_service,
         daily_bar_runner=daily_bar_runner,
         broker_connected_provider=adapter.is_connected,
+        gateway_health_provider=_build_gateway_health_provider(config.ibkr.host),
         daily_runner_log_path=config_file.parent.parent / "var" / "logs" / "daily_runner.log",
     )
     command_service.rotate_reconciliation_token()
@@ -327,6 +330,58 @@ def bootstrap_service(
         daily_bar_runner=daily_bar_runner,
         started_at=started_at,
     )
+
+
+def _build_gateway_health_provider(ibkr_host: str) -> Callable[[], dict[str, object]]:
+    container_name = "ib-gateway-paper"
+    if ibkr_host != "127.0.0.1":
+        return lambda: {
+            "available": False,
+            "container": container_name,
+            "running": False,
+            "status": "remote",
+            "started_at": "",
+            "restart_count": 0,
+        }
+
+    def _provider() -> dict[str, object]:
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "inspect",
+                    container_name,
+                    "--format",
+                    "{{json .State}}@@{{.RestartCount}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=True,
+            )
+            state_raw, restart_raw = result.stdout.strip().split("@@", 1)
+            state = json.loads(state_raw)
+            restart_count = int((restart_raw or "0").strip())
+            return {
+                "available": True,
+                "container": container_name,
+                "running": bool(state.get("Running", False)),
+                "status": str(state.get("Status", "unknown")),
+                "started_at": str(state.get("StartedAt", "") or ""),
+                "restart_count": restart_count,
+            }
+        except Exception as exc:
+            return {
+                "available": False,
+                "container": container_name,
+                "running": False,
+                "status": "unavailable",
+                "started_at": "",
+                "restart_count": 0,
+                "error": str(exc),
+            }
+
+    return _provider
 
 
 def _build_quote_provider(adapter: BrokerAdapter) -> Callable[[str], QuoteSnapshot | None]:

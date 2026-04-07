@@ -123,6 +123,7 @@ def render_dashboard_html() -> str:
       margin-top: 9px;
       color: var(--muted);
       font-size: 13px;
+      line-height: 1.35;
     }
 
     .layout {
@@ -359,7 +360,7 @@ def render_dashboard_html() -> str:
         <section class="panel section">
           <div class="section-head">
             <h2 class="section-title">Daily Runner</h2>
-            <div class="section-note">Most recent line</div>
+            <div class="section-note" id="runner-note">Most recent line</div>
           </div>
           <div class="runner" id="runner-log"></div>
           <div class="footer-note">Source: <span style="font-family:var(--mono)">var/logs/daily_runner.log</span></div>
@@ -381,6 +382,7 @@ def render_dashboard_html() -> str:
     const strategyGrid = document.getElementById("strategy-grid");
     const auditFeed = document.getElementById("audit-feed");
     const runnerLog = document.getElementById("runner-log");
+    const runnerNote = document.getElementById("runner-note");
     const refreshNote = document.getElementById("refresh-note");
     const notes = document.getElementById("notes");
 
@@ -394,18 +396,40 @@ def render_dashboard_html() -> str:
       return String(value);
     }
 
+    function fmtTs(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString();
+    }
+
+    function relativeTime(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      const diffMs = Date.now() - date.getTime();
+      const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+      if (diffMinutes < 1) return "just now";
+      if (diffMinutes < 60) return `${diffMinutes}m ago`;
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) return `${diffHours}h ago`;
+      return `${Math.floor(diffHours / 24)}d ago`;
+    }
+
     function badge(label, kind = "") {
       return `<span class="badge ${kind}">${label}</span>`;
     }
 
     function statusKind(value) {
       const raw = String(value || "").toUpperCase();
-      if (raw === "READY" || raw === "PAPER" || raw === "LIVE" || raw === "CONNECTED") return "ok";
-      if (raw === "HALTED" || raw === "DISCONNECTED") return "danger";
+      if (["READY", "PAPER", "LIVE", "CONNECTED", "RUNNING", "SMS"].includes(raw)) return "ok";
+      if (["HALTED", "DISCONNECTED", "UNAVAILABLE"].includes(raw)) return "danger";
       return "warn";
     }
 
     function renderPulse(data) {
+      const gateway = data.gateway || {};
+      const lastRunStatus = data.daily_runner.last_result ? String(data.daily_runner.last_result.status || "unknown") : "none";
       const cards = [
         {
           label: "Runtime",
@@ -413,14 +437,24 @@ def render_dashboard_html() -> str:
           meta: `Uptime ${fmt(data.runtime.uptime_seconds)}s`,
         },
         {
-          label: "IBKR Gateway",
-          value: data.broker.connected ? "Connected" : "Disconnected",
-          meta: `${data.mode.ibkr.host}:${data.mode.ibkr.port}`,
-        },
-        {
           label: "Mode",
           value: data.mode.mode,
           meta: `Run ${data.runtime.run_id}`,
+        },
+        {
+          label: "IBKR Gateway",
+          value: data.broker.connected ? "Connected" : "Disconnected",
+          meta: `${data.mode.ibkr.host}:${data.mode.ibkr.port} · ${gateway.container || "gateway"}`,
+        },
+        {
+          label: "Gateway Uptime",
+          value: gateway.running ? relativeTime(gateway.started_at) : fmt(gateway.status),
+          meta: `Restarts ${fmt(gateway.restart_count)} · ${fmtTs(gateway.started_at)}`,
+        },
+        {
+          label: "Last Daily Run",
+          value: relativeTime(data.daily_runner.last_success_at || data.daily_runner.last_updated_at),
+          meta: `${lastRunStatus.toUpperCase()} · ${fmtTs(data.daily_runner.last_updated_at)}`,
         },
         {
           label: "Active Strategies",
@@ -482,6 +516,7 @@ def render_dashboard_html() -> str:
 
     function renderDailyRunner(data) {
       const result = data.daily_runner.last_result;
+      runnerNote.textContent = data.daily_runner.last_updated_at ? `Updated ${fmtTs(data.daily_runner.last_updated_at)}` : "Most recent line";
       if (!result) {
         runnerLog.textContent = data.daily_runner.last_line || "No daily runner log entries.";
         return;
@@ -493,6 +528,8 @@ def render_dashboard_html() -> str:
         `Status: ${fmt(result.status)}`,
         `Issued By: ${fmt(result.issued_by)}`,
         `Reconciliation: ${fmt(result.reconciliation_status)}`,
+        `Updated At: ${fmtTs(data.daily_runner.last_updated_at)}`,
+        `Last Success: ${fmtTs(data.daily_runner.last_success_at)}`,
         `Deliveries: ${deliveries.length}`,
       ];
       if (delivery) {
@@ -510,10 +547,15 @@ def render_dashboard_html() -> str:
     }
 
     function renderNotes(data) {
+      const alertBody = data.alerts.sms_enabled
+        ? `SMS alerts active via Telus email gateway${data.alerts.telegram_enabled ? "; Telegram also enabled." : "; Telegram disabled."}`
+        : "No operator alert sink is active.";
+      const gateway = data.gateway || {};
       const items = [
         { title: "Broker Link", body: data.broker.connected ? "traderd reports an active broker connection." : "Broker adapter is disconnected from IBKR." },
+        { title: "Gateway Health", body: `${fmt(gateway.status)} · restarts ${fmt(gateway.restart_count)} · started ${fmtTs(gateway.started_at)}` },
+        { title: "Alerts", body: alertBody },
         { title: "Halt State", body: data.runtime.halt_state.is_halted ? `HALTED: ${data.runtime.halt_state.halt_reason_code || ""} ${data.runtime.halt_state.halt_reason_text || ""}` : "No halt is active." },
-        { title: "Operator API", body: `Loopback API is serving on ${data.mode.ibkr.host === "127.0.0.1" ? "the bot box locally" : data.mode.ibkr.host}.` },
       ];
       notes.innerHTML = items.map((item) => `
         <div class="feed-row">

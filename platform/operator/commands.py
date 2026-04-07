@@ -44,6 +44,7 @@ class OperatorCommandService:
     strategy_runtime_service: Any | None = None
     daily_bar_runner: Any | None = None
     broker_connected_provider: Callable[[], bool] | None = None
+    gateway_health_provider: Callable[[], dict[str, Any]] | None = None
     daily_runner_log_path: Path | None = None
 
     def get_status(self) -> dict[str, Any]:
@@ -108,6 +109,8 @@ class OperatorCommandService:
             "broker": {
                 "connected": self._broker_connected(),
             },
+            "gateway": self._gateway_health(),
+            "alerts": self._alert_status(),
             "summary": {
                 "strategy_count": len(strategies),
                 "paper_strategy_count": paper_count,
@@ -448,12 +451,45 @@ class OperatorCommandService:
         except Exception:
             return False
 
+    def _gateway_health(self) -> dict[str, Any]:
+        default = {
+            "available": False,
+            "container": "ib-gateway-paper",
+            "running": False,
+            "status": "unknown",
+            "started_at": "",
+            "restart_count": 0,
+        }
+        if self.gateway_health_provider is None:
+            return default
+        try:
+            payload = self.gateway_health_provider() or {}
+        except Exception:
+            return default
+        if not isinstance(payload, dict):
+            return default
+        return {**default, **payload}
+
+    def _alert_status(self) -> dict[str, Any]:
+        channels: list[str] = []
+        if self.alert_dispatcher is not None:
+            if self.alert_dispatcher.telegram.is_configured:
+                channels.append("telegram")
+            if self.alert_dispatcher.sms.is_configured:
+                channels.append("sms")
+        return {
+            "channels": channels,
+            "telegram_enabled": "telegram" in channels,
+            "sms_enabled": "sms" in channels,
+        }
+
     def _read_daily_runner_status(self) -> dict[str, Any]:
         if self.daily_runner_log_path is None or not self.daily_runner_log_path.exists():
-            return {"last_line": "", "last_result": None}
+            return {"last_line": "", "last_result": None, "last_updated_at": "", "last_success_at": ""}
         text = self.daily_runner_log_path.read_text(encoding="utf-8").strip()
+        last_updated_at = datetime.fromtimestamp(self.daily_runner_log_path.stat().st_mtime, timezone.utc).isoformat().replace("+00:00", "Z")
         if not text:
-            return {"last_line": "", "last_result": None}
+            return {"last_line": "", "last_result": None, "last_updated_at": last_updated_at, "last_success_at": ""}
         last_line = text.splitlines()[-1]
         try:
             parsed = json.loads(last_line)
@@ -461,7 +497,15 @@ class OperatorCommandService:
             parsed = None
         if not isinstance(parsed, dict):
             parsed = None
-        return {"last_line": last_line, "last_result": parsed}
+        last_success_at = ""
+        if parsed is not None and str(parsed.get("status", "")).lower() == "ok":
+            last_success_at = last_updated_at
+        return {
+            "last_line": last_line,
+            "last_result": parsed,
+            "last_updated_at": last_updated_at,
+            "last_success_at": last_success_at,
+        }
 
     def _require_strategy_registry(self) -> StrategyRegistryRepository:
         if self.strategy_registry_repository is None:
