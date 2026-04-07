@@ -284,6 +284,39 @@ def render_dashboard_html() -> str:
       word-break: break-word;
     }
 
+    .activity-summary {
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+
+    .activity-detail {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    details.audit-raw {
+      border-top: 1px solid var(--line);
+      margin-top: 14px;
+      padding-top: 14px;
+    }
+
+    details.audit-raw > summary {
+      cursor: pointer;
+      list-style: none;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    details.audit-raw > summary::-webkit-details-marker {
+      display: none;
+    }
+
     .runner {
       font-family: var(--mono);
       font-size: 12px;
@@ -349,10 +382,14 @@ def render_dashboard_html() -> str:
 
         <section class="panel section">
           <div class="section-head">
-            <h2 class="section-title">Recent Audit</h2>
-            <div class="section-note">Last 20 events</div>
+            <h2 class="section-title">Recent Activity</h2>
+            <div class="section-note">Operator view</div>
           </div>
-          <div class="feed" id="audit-feed"></div>
+          <div class="feed" id="activity-feed"></div>
+          <details class="audit-raw">
+            <summary>Raw Audit Events</summary>
+            <div class="feed" id="audit-feed"></div>
+          </details>
         </section>
       </div>
 
@@ -380,6 +417,7 @@ def render_dashboard_html() -> str:
   <script>
     const pulseGrid = document.getElementById("pulse-grid");
     const strategyGrid = document.getElementById("strategy-grid");
+    const activityFeed = document.getElementById("activity-feed");
     const auditFeed = document.getElementById("audit-feed");
     const runnerLog = document.getElementById("runner-log");
     const runnerNote = document.getElementById("runner-note");
@@ -502,6 +540,114 @@ def render_dashboard_html() -> str:
       }).join("") || '<div class="feed-row">No strategies found.</div>';
     }
 
+    function describeAuditEntry(entry) {
+      const payload = entry.payload || {};
+      switch (entry.event_type) {
+        case "operator.alert": {
+          const alert = payload.alert || {};
+          const sinks = payload.sinks || {};
+          if (alert.event_type === "session.start") {
+            const sms = sinks.sms && sinks.sms.sent ? "SMS sent" : "SMS not sent";
+            return {
+              title: "Traderd startup alert",
+              summary: `Traderd entered ${alert.payload && alert.payload.mode ? String(alert.payload.mode).toUpperCase() : "paper"} mode and ${sms}.`,
+              detail: alert.message || "Startup alert dispatched.",
+            };
+          }
+          if (alert.event_type === "broker.connect_failed") {
+            return {
+              title: "Broker connection failed",
+              summary: "Traderd could not connect to the IBKR gateway during startup.",
+              detail: alert.message || "Broker connection failed.",
+            };
+          }
+          return {
+            title: "Operator alert",
+            summary: alert.message || entry.event_type,
+            detail: `Severity: ${fmt(alert.severity)} · Sinks: ${Object.keys(sinks).join(", ") || "none"}`,
+          };
+        }
+        case "operator.alert_sms":
+          return {
+            title: "SMS alert delivery",
+            summary: payload.result && payload.result.sent ? "An SMS alert was delivered successfully." : "An SMS alert failed to deliver.",
+            detail: payload.result && payload.result.message ? payload.result.message : `Severity: ${fmt(payload.severity)}`,
+          };
+        case "runtime.state_transition":
+          return {
+            title: "Runtime state changed",
+            summary: `Runtime moved from ${fmt(payload.from_state)} to ${fmt(payload.to_state)}.`,
+            detail: payload.reason_text || "No reason recorded.",
+          };
+        case "reconciliation.result":
+          return {
+            title: "Startup reconciliation",
+            summary: `Reconciliation finished with status ${fmt(payload.status)}.`,
+            detail: Array.isArray(payload.reasons) && payload.reasons.length ? payload.reasons.join(", ") : "No issues recorded.",
+          };
+        case "reconciliation.corrected":
+          return {
+            title: "Broker state refreshed",
+            summary: "Local broker state was refreshed from IBKR.",
+            detail: `Positions ${fmt(payload.positions)} · Open orders ${fmt(payload.open_orders)} · Executions ${fmt(payload.executions)}`,
+          };
+        case "runtime.mode":
+          return {
+            title: "Runtime target",
+            summary: `Traderd is pointed at ${fmt(payload.host)}:${fmt(payload.port)} in ${fmt(payload.mode)} mode.`,
+            detail: payload.account ? `Account ${fmt(payload.account)}` : "Paper account identifier not set.",
+          };
+        case "strategy.bar_processed":
+          return {
+            title: "Strategy processed bar",
+            summary: `${fmt(entry.strategy_id)} processed a new bar.`,
+            detail: `Instrument ${fmt(entry.instrument_id)} · ${fmt(payload.bar_ts)}`,
+          };
+        case "strategy.signal": {
+          const reason = payload.reason ? String(payload.reason).replaceAll("_", " ") : "signal";
+          return {
+            title: "Strategy signal generated",
+            summary: `${fmt(entry.strategy_id)} generated a ${reason} signal.`,
+            detail: `Reference price ${fmt(payload.reference_price)} · Stage ${fmt(payload.stage)}`,
+          };
+        }
+        case "daily_bar_runner.completed":
+          return {
+            title: "Daily bar run completed",
+            summary: `Daily runner completed with ${fmt(payload.status)} status.`,
+            detail: `Deliveries ${fmt(payload.deliveries_count)} · Issued by ${fmt(payload.issued_by)}`,
+          };
+        case "halt.set":
+          return {
+            title: "Runtime halted",
+            summary: `Traderd was halted for ${fmt(payload.reason_code)}.`,
+            detail: payload.reason_text || "No halt reason text recorded.",
+          };
+        default:
+          return {
+            title: entry.event_type,
+            summary: entry.component || "System event",
+            detail: JSON.stringify(payload),
+          };
+      }
+    }
+
+    function renderActivity(data) {
+      activityFeed.innerHTML = data.audit.entries.map((entry) => {
+        const view = describeAuditEntry(entry);
+        return `
+          <div class="feed-row">
+            <div class="feed-top">
+              <span class="feed-type">${view.title}</span>
+              <span>${fmtTs(entry.ts_utc)}</span>
+            </div>
+            <div class="activity-summary">${view.summary}</div>
+            <div class="activity-detail">${view.detail}</div>
+          </div>
+        `;
+      }).join("") || '<div class="feed-row">No recent activity.</div>';
+    }
+
     function renderAudit(data) {
       auditFeed.innerHTML = data.audit.entries.map((entry) => `
         <div class="feed-row">
@@ -573,6 +719,7 @@ def render_dashboard_html() -> str:
         const data = await response.json();
         renderPulse(data);
         renderStrategies(data);
+        renderActivity(data);
         renderAudit(data);
         renderNotes(data);
         renderDailyRunner(data);
