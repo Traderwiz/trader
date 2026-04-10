@@ -65,3 +65,13 @@ This file is the chronological index of completed research runs. Dates are liste
 - What was built: Extended the runtime alert config with `alerts.sms`; added a best-effort `SMSDispatcher` using `smtplib` and Gmail STARTTLS; mapped entry, exit, halt, daily-loss, lifecycle, and broker-disconnect events to 160-character SMS templates; preserved non-blocking alert behavior and audit logging for both success and failure paths.
 - Files modified: `config/service.yaml`, `platform/bootstrap.py`, `platform/config.py`, `platform/operator/alerts.py`, `platform/strategy/runtime.py`, `tests/unit/test_alerts.py`, `tests/unit/test_config.py`, `tests/unit/test_operator_strategy_api.py`.
 - Verification: Unit coverage added for SMS config loading, SMS non-blocking failure handling, and SMS signal formatting/truncation. End-to-end verification requires a live Telus gateway test from `gregabernardi@gmail.com` using `GMAIL_APP_PASSWORD` plus operator confirmation that the SMS reached Greg's phone.
+
+## Run 008
+
+- Date: 2026-04-10
+- Description: Added runtime-owned IBKR auto-reconnect so traderd moves out of TRADING on gateway loss, retries with exponential backoff, re-runs reconciliation after reconnect, and alerts operators on loss and recovery.
+- What was built: Added adapter-level disconnect listeners and timeout handling in the IBKR adapter; added a broker reconnect supervisor that moves the runtime into RECONCILING, retries at 30s/60s/120s/300s, logs failed attempts without SMS, and restores runtime connectivity only after reconciliation succeeds; extended alerts with reconnect SMS templates and log-only dispatch; tightened the daily bar runner to require READY before a delivery cycle; added simulated-broker and integration coverage for reconnect recovery.
+- Files modified: `platform/bootstrap.py`, `platform/broker/base.py`, `platform/broker/ibkr.py`, `platform/broker/simulator.py`, `platform/operator/alerts.py`, `platform/state_machine.py`, `platform/strategy/daily_runner.py`, `docs/research_archive/runs.md`.
+- Files created: `platform/broker/reconnect.py`, `tests/integration/test_bootstrap_reconnect.py`, `tests/unit/test_broker_reconnect.py`, `tests/unit/test_daily_runner_state_guard.py`, `tests/unit/test_reconnect_alerts.py`, `tests/unit/test_state_machine_reconnect.py`.
+- Verification: Targeted compile checks plus reconnect unit/integration coverage were added. Full suite verification is required via `/home/gabernardi/trader/.venv/bin/pytest tests/unit tests/integration tests/scenario -v` before release.
+

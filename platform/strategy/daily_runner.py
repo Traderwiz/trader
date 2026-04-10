@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 from platform.execution.service import ExecutionService
@@ -29,19 +28,19 @@ class DailyBarRunner:
     def run(self, *, issued_by: str) -> dict[str, Any]:
         if self.state_machine.current_state is RuntimeState.HALTED:
             raise RuntimeError('runtime is halted')
+        if self.state_machine.current_state is not RuntimeState.READY:
+            raise RuntimeError(f'runtime is {self.state_machine.current_state.value.lower()}')
 
         active_records = self.strategy_runtime_service.list_active_records()
         if not active_records:
             return {'issued_by': issued_by, 'status': 'no_active_strategies', 'deliveries': []}
 
-        transitioned = False
-        if self.state_machine.current_state is RuntimeState.READY:
-            self.state_machine.transition(
-                RuntimeState.TRADING,
-                actor=issued_by,
-                reason_text='daily bar delivery run started',
-            )
-            transitioned = True
+        self.state_machine.transition(
+            RuntimeState.TRADING,
+            actor=issued_by,
+            reason_text='daily bar delivery run started',
+        )
+        transitioned = True
 
         try:
             reconciliation = self.execution_service.run_reconciliation()

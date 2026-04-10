@@ -114,7 +114,9 @@ class SMSDispatcher:
         if record.event_type == "session.end":
             return "Traderd stopped"
         if record.event_type == "broker.disconnect":
-            return "IBKR connection lost - check gateway"
+            return "IBKR connection lost. Attempting reconnect."
+        if record.event_type == "broker.reconnect_success":
+            return "IBKR reconnected successfully."
         return ""
 
     def _audit_delivery(self, *, record: AlertRecord, result: dict[str, Any]) -> None:
@@ -158,6 +160,54 @@ class AlertDispatcher:
     ) -> dict[str, Any]:
         """Dispatch one alert to all configured sinks and audit the outcome."""
 
+        return self._dispatch(
+            severity=severity,
+            event_type=event_type,
+            message=message,
+            payload=payload,
+            send_telegram=True,
+            send_sms=True,
+        )
+
+    def log_only(
+        self,
+        *,
+        severity: AlertSeverity,
+        event_type: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Write one alert record to the operator log and audit trail only."""
+
+        return self._dispatch(
+            severity=severity,
+            event_type=event_type,
+            message=message,
+            payload=payload,
+            send_telegram=False,
+            send_sms=False,
+        )
+
+    def send_test_alert(self, *, message: str = "Phase 5 alert dispatcher test") -> dict[str, Any]:
+        """Emit a deterministic test alert through all configured sinks."""
+
+        return self.send(
+            severity=AlertSeverity.INFO,
+            event_type="alerts.test",
+            message=message,
+            payload={"kind": "test"},
+        )
+
+    def _dispatch(
+        self,
+        *,
+        severity: AlertSeverity,
+        event_type: str,
+        message: str,
+        payload: dict[str, Any] | None,
+        send_telegram: bool,
+        send_sms: bool,
+    ) -> dict[str, Any]:
         record = AlertRecord(
             timestamp=_utc_now(),
             severity=severity,
@@ -173,7 +223,7 @@ class AlertDispatcher:
         except Exception as exc:  # pragma: no cover - defensive hardening
             sink_results["log"] = {"sent": False, "error": str(exc)}
 
-        if self.telegram.is_configured:
+        if send_telegram and self.telegram.is_configured:
             try:
                 self._send_telegram(record)
                 sink_results["telegram"] = {"sent": True}
@@ -182,7 +232,7 @@ class AlertDispatcher:
         else:
             sink_results["telegram"] = {"sent": False, "skipped": True}
 
-        if self.sms.is_configured:
+        if send_sms and self.sms.is_configured:
             sink_results["sms"] = SMSDispatcher(audit_log=self.audit_log, settings=self.sms).send(record=record)
         else:
             sink_results["sms"] = {"sent": False, "skipped": True}
@@ -199,16 +249,6 @@ class AlertDispatcher:
         except Exception:
             pass
         return {"alert": record.to_dict(), "sinks": sink_results}
-
-    def send_test_alert(self, *, message: str = "Phase 5 alert dispatcher test") -> dict[str, Any]:
-        """Emit a deterministic test alert through all configured sinks."""
-
-        return self.send(
-            severity=AlertSeverity.INFO,
-            event_type="alerts.test",
-            message=message,
-            payload={"kind": "test"},
-        )
 
     def _write_log(self, record: AlertRecord) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)

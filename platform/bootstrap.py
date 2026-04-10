@@ -12,7 +12,8 @@ from typing import Callable
 
 from platform.broker.base import BrokerAdapter
 from platform.broker.ibkr import IBKRAdapter
-from platform.broker.reconciliation import ReconciliationEngine, ReconciliationStatus
+from platform.broker.reconciliation import ReconciliationEngine, ReconciliationResult, ReconciliationStatus
+from platform.broker.reconnect import BrokerReconnectSupervisor
 from platform.config import AppConfig, load_config
 from platform.data.catalog import load_instrument_catalog
 from platform.data.parquet_store import ParquetStore
@@ -64,6 +65,7 @@ class BootstrapContext:
     alert_dispatcher: AlertDispatcher
     strategy_runtime_service: StrategyRuntimeService
     daily_bar_runner: DailyBarRunner
+    reconnect_supervisor: BrokerReconnectSupervisor
     started_at: datetime
 
     def shutdown(self) -> None:
@@ -75,6 +77,7 @@ class BootstrapContext:
                 actor="app",
                 reason_text="service shutdown requested",
             )
+        self.reconnect_supervisor.stop()
         self.alert_dispatcher.send(
             severity=AlertSeverity.INFO,
             event_type="session.end",
@@ -92,6 +95,8 @@ def bootstrap_service(
     instruments: dict[str, Instrument] | None = None,
     quote_provider: Callable[[str], QuoteSnapshot | None] | None = None,
     alert_dispatcher: AlertDispatcher | None = None,
+    reconnect_backoff_seconds: tuple[float, ...] = (30.0, 60.0, 120.0, 300.0),
+    reconnect_poll_interval_seconds: float = 5.0,
 ) -> BootstrapContext:
     """Construct and start the runtime service components."""
 
@@ -156,6 +161,7 @@ def bootstrap_service(
     )
     try:
         adapter.connect()
+        _set_runtime_connection_active(adapter, True)
     except Exception:
         alerts.send(
             severity=AlertSeverity.CRITICAL,
@@ -259,40 +265,14 @@ def bootstrap_service(
     command_service.rotate_reconciliation_token()
 
     reconciliation_result = execution_service.run_reconciliation()
-    halt_state = control_state_repository.get_halt_state()
-    if reconciliation_result.status is ReconciliationStatus.MATERIAL and not halt_state.is_halted:
-        reason_text = "startup reconciliation detected a material mismatch"
-        set_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        control_state_repository.set_halt(
-            reason_code="RECONCILIATION_MISMATCH",
-            reason_text=reason_text,
-            set_at=set_at,
-            set_by="bootstrap",
-        )
-        audit_log.append(
-            event_type="halt.set",
-            component="bootstrap",
-            payload={
-                "reason_code": "RECONCILIATION_MISMATCH",
-                "reason_text": reason_text,
-                "reasons": list(reconciliation_result.reasons),
-            },
-        )
-        halt_state = control_state_repository.get_halt_state()
-
-    if halt_state.is_halted:
-        state_machine.transition(
-            RuntimeState.HALTED,
-            actor="bootstrap",
-            reason_code=halt_state.halt_reason_code,
-            reason_text=halt_state.halt_reason_text or "persistent halt state found during startup",
-        )
-    else:
-        state_machine.transition(
-            RuntimeState.READY,
-            actor="bootstrap",
-            reason_text=f"startup reconciliation completed with status={reconciliation_result.status.value}",
-        )
+    _apply_reconciliation_outcome(
+        reconciliation_result=reconciliation_result,
+        control_state_repository=control_state_repository,
+        audit_log=audit_log,
+        state_machine=state_machine,
+        actor="bootstrap",
+        stage_label="startup",
+    )
 
     alerts.send(
         severity=AlertSeverity.INFO,
@@ -311,6 +291,26 @@ def bootstrap_service(
     )
     operator_api.start()
 
+    reconnect_supervisor = BrokerReconnectSupervisor(
+        broker_adapter=adapter,
+        state_machine=state_machine,
+        execution_service=execution_service,
+        audit_log=audit_log,
+        alert_dispatcher=alerts,
+        local_state_snapshot_provider=execution_service.local_state_snapshot,
+        apply_reconciliation_outcome=lambda result, actor: _apply_reconciliation_outcome(
+            reconciliation_result=result,
+            control_state_repository=control_state_repository,
+            audit_log=audit_log,
+            state_machine=state_machine,
+            actor=actor,
+            stage_label="reconnect",
+        ),
+        backoff_seconds=reconnect_backoff_seconds,
+        poll_interval_seconds=reconnect_poll_interval_seconds,
+    )
+    reconnect_supervisor.start()
+
     return BootstrapContext(
         config=config,
         run_id=run_id,
@@ -328,8 +328,67 @@ def bootstrap_service(
         alert_dispatcher=alerts,
         strategy_runtime_service=strategy_runtime_service,
         daily_bar_runner=daily_bar_runner,
+        reconnect_supervisor=reconnect_supervisor,
         started_at=started_at,
     )
+
+
+def _apply_reconciliation_outcome(
+    *,
+    reconciliation_result: ReconciliationResult,
+    control_state_repository: ControlStateRepository,
+    audit_log: AuditLogWriter,
+    state_machine: RuntimeStateMachine,
+    actor: str,
+    stage_label: str,
+) -> RuntimeState:
+    halt_state = control_state_repository.get_halt_state()
+    if reconciliation_result.status is ReconciliationStatus.MATERIAL and not halt_state.is_halted:
+        reason_text = f"{stage_label} reconciliation detected a material mismatch"
+        set_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        control_state_repository.set_halt(
+            reason_code="RECONCILIATION_MISMATCH",
+            reason_text=reason_text,
+            set_at=set_at,
+            set_by=actor,
+        )
+        audit_log.append(
+            event_type="halt.set",
+            component=actor,
+            payload={
+                "reason_code": "RECONCILIATION_MISMATCH",
+                "reason_text": reason_text,
+                "reasons": list(reconciliation_result.reasons),
+            },
+        )
+        halt_state = control_state_repository.get_halt_state()
+
+    if halt_state.is_halted:
+        if state_machine.current_state is not RuntimeState.HALTED:
+            state_machine.transition(
+                RuntimeState.HALTED,
+                actor=actor,
+                reason_code=halt_state.halt_reason_code,
+                reason_text=halt_state.halt_reason_text or f"persistent halt state found during {stage_label}",
+            )
+        return state_machine.current_state
+
+    if state_machine.current_state is RuntimeState.HALTED:
+        return state_machine.current_state
+
+    if state_machine.current_state is not RuntimeState.READY:
+        state_machine.transition(
+            RuntimeState.READY,
+            actor=actor,
+            reason_text=f"{stage_label} reconciliation completed with status={reconciliation_result.status.value}",
+        )
+    return state_machine.current_state
+
+
+def _set_runtime_connection_active(adapter: BrokerAdapter, active: bool) -> None:
+    setter = getattr(adapter, "set_runtime_connection_active", None)
+    if callable(setter):
+        setter(active)
 
 
 def _build_gateway_health_provider(ibkr_host: str) -> Callable[[], dict[str, object]]:

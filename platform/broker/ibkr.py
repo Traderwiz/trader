@@ -14,7 +14,7 @@ from platform.broker.contracts import instrument_to_ibkr_contract
 from platform.models import BarEvent, Instrument, OrderIntent, OrderSide, OrderType
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class IBKRAdapter(BrokerAdapter):
@@ -42,11 +42,17 @@ class IBKRAdapter(BrokerAdapter):
         self._worker_ready = threading.Event()
         self._worker_thread: threading.Thread | None = None
         self._worker_thread_id: int | None = None
+        self._disconnect_listeners: list[Callable[[str], None]] = []
+        self._runtime_connection_active = True
+        self._disconnect_notified = False
+        self._suppress_disconnect_notifications = False
+        self._state_lock = threading.Lock()
 
     def connect(self) -> None:
         self._run_on_worker(self._connect_impl)
 
     def disconnect(self) -> None:
+        self.set_runtime_connection_active(False)
         if self._worker_thread is None:
             return
         try:
@@ -62,7 +68,16 @@ class IBKRAdapter(BrokerAdapter):
     def is_connected(self) -> bool:
         if self._worker_thread is None:
             return False
-        return bool(self._run_on_worker(self._is_connected_impl))
+        transport_connected = bool(self._run_on_worker(self._is_connected_impl))
+        with self._state_lock:
+            return transport_connected and self._runtime_connection_active
+
+    def add_disconnect_listener(self, listener: Callable[[str], None]) -> None:
+        self._disconnect_listeners.append(listener)
+
+    def set_runtime_connection_active(self, active: bool) -> None:
+        with self._state_lock:
+            self._runtime_connection_active = active
 
     def get_account_summary(self) -> AccountSummary:
         return self._run_on_worker(self._get_account_summary_impl)
@@ -96,32 +111,48 @@ class IBKRAdapter(BrokerAdapter):
 
         if self._ib is None:
             self._ib = IB()
+            self._ib.disconnectedEvent += self._on_disconnected
+            self._ib.timeoutEvent += self._on_timeout
         if not self._ib.isConnected():
             self._ib.connect(self._host, self._port, clientId=self._client_id)
+        self._ib.setTimeout(60)
+        with self._state_lock:
+            self._disconnect_notified = False
 
     def _disconnect_impl(self) -> None:
-        if self._ib is not None and self._ib.isConnected():
-            self._ib.disconnect()
-        self._ib = None
-        self._order_contract_cache.clear()
-        self._data_contract_cache.clear()
+        if self._ib is None:
+            self._order_contract_cache.clear()
+            self._data_contract_cache.clear()
+            return
+
+        self._suppress_disconnect_notifications = True
+        try:
+            if self._ib.isConnected():
+                self._ib.disconnect()
+        finally:
+            self._ib = None
+            self._order_contract_cache.clear()
+            self._data_contract_cache.clear()
+            with self._state_lock:
+                self._disconnect_notified = False
+            self._suppress_disconnect_notifications = False
 
     def _is_connected_impl(self) -> bool:
         return bool(self._ib is not None and self._ib.isConnected())
 
     def _get_account_summary_impl(self) -> AccountSummary:
         self._require_connection()
-        summary_rows = self._ib.accountSummary(account=self._account or '')
+        summary_rows = self._ib.accountSummary(account=self._account or "")
         values = {
             (row.account, row.tag): float(row.value)
             for row in summary_rows
-            if row.tag in {'TotalCashValue', 'NetLiquidation', 'BuyingPower'}
+            if row.tag in {"TotalCashValue", "NetLiquidation", "BuyingPower"}
         }
-        account_key = self._account or next((row.account for row in summary_rows), '')
+        account_key = self._account or next((row.account for row in summary_rows), "")
         return AccountSummary(
-            cash=values.get((account_key, 'TotalCashValue'), 0.0),
-            net_liquidation_value=values.get((account_key, 'NetLiquidation'), 0.0),
-            buying_power=values.get((account_key, 'BuyingPower'), 0.0),
+            cash=values.get((account_key, "TotalCashValue"), 0.0),
+            net_liquidation_value=values.get((account_key, "NetLiquidation"), 0.0),
+            buying_power=values.get((account_key, "BuyingPower"), 0.0),
         )
 
     def _get_positions_impl(self) -> list[BrokerPosition]:
@@ -132,7 +163,7 @@ class IBKRAdapter(BrokerAdapter):
                 quantity=float(row.position),
                 average_price=float(row.avgCost),
             )
-            for row in self._ib.positions(account=self._account or '')
+            for row in self._ib.positions(account=self._account or "")
             if row.position
         ]
 
@@ -140,17 +171,17 @@ class IBKRAdapter(BrokerAdapter):
         self._require_connection()
         orders: list[BrokerOrder] = []
         for trade in self._ib.openTrades():
-            if self._account and getattr(trade.orderStatus, 'account', '') not in {'', self._account}:
+            if self._account and getattr(trade.orderStatus, "account", "") not in {"", self._account}:
                 continue
             orders.append(
                 BrokerOrder(
                     order_id=str(trade.order.orderId),
                     intent_id=str(trade.order.orderRef) if trade.order.orderRef else None,
                     instrument_id=self._resolve_instrument_id(trade.contract),
-                    side=OrderSide.BUY if trade.order.action.upper() == 'BUY' else OrderSide.SELL,
+                    side=OrderSide.BUY if trade.order.action.upper() == "BUY" else OrderSide.SELL,
                     quantity=float(trade.order.totalQuantity),
-                    order_type=OrderType.LIMIT if trade.order.orderType.upper() == 'LMT' else OrderType.MARKET,
-                    limit_price=float(trade.order.lmtPrice) if trade.order.orderType.upper() == 'LMT' else None,
+                    order_type=OrderType.LIMIT if trade.order.orderType.upper() == "LMT" else OrderType.MARKET,
+                    limit_price=float(trade.order.lmtPrice) if trade.order.orderType.upper() == "LMT" else None,
                     status=str(trade.orderStatus.status),
                     submitted_at=datetime.now(timezone.utc),
                 )
@@ -166,9 +197,9 @@ class IBKRAdapter(BrokerAdapter):
                 BrokerExecution(
                     execution_id=str(execution.execId),
                     order_id=str(execution.orderId),
-                    intent_id=str(getattr(execution, 'orderRef', '') or '') or None,
+                    intent_id=str(getattr(execution, "orderRef", "") or "") or None,
                     instrument_id=self._resolve_instrument_id(fill.contract),
-                    side=OrderSide.BUY if execution.side.upper() == 'BOT' else OrderSide.SELL,
+                    side=OrderSide.BUY if execution.side.upper() == "BOT" else OrderSide.SELL,
                     quantity=float(execution.shares),
                     price=float(execution.price),
                     ts_utc=datetime.now(timezone.utc),
@@ -204,12 +235,12 @@ class IBKRAdapter(BrokerAdapter):
     def _get_quote_impl(self, instrument_id: str) -> dict[str, float | None] | None:
         self._require_connection()
         contract = self._resolve_data_contract(instrument_id)
-        ticker = self._ib.reqMktData(contract, '', snapshot=True, regulatorySnapshot=False)
+        ticker = self._ib.reqMktData(contract, "", snapshot=True, regulatorySnapshot=False)
         self._ib.sleep(1.0)
         quote = {
-            'bid': self._clean_price(getattr(ticker, 'bid', None)),
-            'ask': self._clean_price(getattr(ticker, 'ask', None)),
-            'last': self._clean_price(getattr(ticker, 'last', None)),
+            "bid": self._clean_price(getattr(ticker, "bid", None)),
+            "ask": self._clean_price(getattr(ticker, "ask", None)),
+            "last": self._clean_price(getattr(ticker, "last", None)),
         }
         self._ib.cancelMktData(contract)
         if all(value is None for value in quote.values()):
@@ -222,16 +253,16 @@ class IBKRAdapter(BrokerAdapter):
         contract = self._resolve_data_contract(instrument_id)
         bars = self._ib.reqHistoricalData(
             contract,
-            endDateTime='',
-            durationStr='3 D',
-            barSizeSetting='1 day',
-            whatToShow='TRADES',
+            endDateTime="",
+            durationStr="3 D",
+            barSizeSetting="1 day",
+            whatToShow="TRADES",
             useRTH=False,
             formatDate=2,
             keepUpToDate=False,
         )
         if not bars:
-            raise RuntimeError(f'No daily bars returned for {instrument_id}.')
+            raise RuntimeError(f"No daily bars returned for {instrument_id}.")
         latest = bars[-1]
         ts_utc = self._coerce_daily_bar_timestamp(latest.date)
         return BarEvent(
@@ -242,7 +273,7 @@ class IBKRAdapter(BrokerAdapter):
             low=float(latest.low),
             close=float(latest.close),
             volume=float(latest.volume),
-            bar_size='1D',
+            bar_size="1D",
         )
 
     def _run_on_worker(self, func: Callable[[], T]) -> T:
@@ -263,11 +294,11 @@ class IBKRAdapter(BrokerAdapter):
 
         self._request_queue = Queue()
         self._worker_ready = threading.Event()
-        self._worker_thread = threading.Thread(target=self._worker_main, name='ibkr-adapter', daemon=True)
+        self._worker_thread = threading.Thread(target=self._worker_main, name="ibkr-adapter", daemon=True)
         self._worker_thread.start()
         self._worker_ready.wait(timeout=5)
         if self._worker_thread_id is None:
-            raise RuntimeError('IBKR worker thread failed to start.')
+            raise RuntimeError("IBKR worker thread failed to start.")
 
     def _worker_main(self) -> None:
         loop = asyncio.new_event_loop()
@@ -310,9 +341,9 @@ class IBKRAdapter(BrokerAdapter):
 
     def _resolve_instrument_id(self, contract) -> str:
         candidates = [
-            getattr(contract, 'localSymbol', None),
-            getattr(contract, 'symbol', None),
-            getattr(contract, 'tradingClass', None),
+            getattr(contract, "localSymbol", None),
+            getattr(contract, "symbol", None),
+            getattr(contract, "tradingClass", None),
         ]
         for candidate in candidates:
             if candidate in self._instrument_by_symbol:
@@ -327,11 +358,11 @@ class IBKRAdapter(BrokerAdapter):
         instrument = self._instruments[instrument_id]
         raw_contract = instrument_to_ibkr_contract(instrument)
         asset_class = instrument.asset_class.upper()
-        if asset_class in {'FUTURE', 'FUTURES'}:
+        if asset_class in {"FUTURE", "FUTURES"}:
             details = self._ib.reqContractDetails(raw_contract)
             if not details:
-                raise RuntimeError(f'Unable to resolve tradable futures contract for {instrument_id}.')
-            contract = sorted(details, key=lambda item: getattr(item.contract, 'lastTradeDateOrContractMonth', ''))[0].contract
+                raise RuntimeError(f"Unable to resolve tradable futures contract for {instrument_id}.")
+            contract = sorted(details, key=lambda item: getattr(item.contract, "lastTradeDateOrContractMonth", ""))[0].contract
         else:
             qualified = self._ib.qualifyContracts(raw_contract)
             contract = qualified[0] if qualified else raw_contract
@@ -345,7 +376,7 @@ class IBKRAdapter(BrokerAdapter):
 
         instrument = self._instruments[instrument_id]
         asset_class = instrument.asset_class.upper()
-        if asset_class in {'FUTURE', 'FUTURES'}:
+        if asset_class in {"FUTURE", "FUTURES"}:
             from ib_insync import ContFuture
 
             contract = ContFuture(symbol=instrument.broker_symbol, exchange=instrument.venue, currency=instrument.currency)
@@ -355,6 +386,32 @@ class IBKRAdapter(BrokerAdapter):
         resolved = qualified[0] if qualified else contract
         self._data_contract_cache[instrument_id] = resolved
         return resolved
+
+    def _on_disconnected(self) -> None:
+        if self._suppress_disconnect_notifications:
+            return
+        self._order_contract_cache.clear()
+        self._data_contract_cache.clear()
+        self._emit_disconnect("IBKR socket disconnected.")
+
+    def _on_timeout(self, idle_period: float) -> None:
+        if self._suppress_disconnect_notifications:
+            return
+        if self._ib is not None and self._ib.isConnected():
+            self._ib.disconnect()
+        self._emit_disconnect(f"IBKR gateway heartbeat timed out after {idle_period:.1f}s.")
+
+    def _emit_disconnect(self, reason: str) -> None:
+        with self._state_lock:
+            self._runtime_connection_active = False
+            if self._disconnect_notified:
+                return
+            self._disconnect_notified = True
+        for listener in list(self._disconnect_listeners):
+            try:
+                listener(reason)
+            except Exception:
+                continue
 
     @staticmethod
     def _clean_price(value: object) -> float | None:
@@ -370,10 +427,10 @@ class IBKRAdapter(BrokerAdapter):
                 raw = raw.replace(tzinfo=timezone.utc)
             return raw.astimezone(timezone.utc)
         if isinstance(raw, date):
-            eastern = ZoneInfo('America/New_York')
+            eastern = ZoneInfo("America/New_York")
             return datetime.combine(raw, time.min, tzinfo=eastern).astimezone(timezone.utc)
-        raise TypeError(f'Unsupported daily bar timestamp payload: {raw!r}')
+        raise TypeError(f"Unsupported daily bar timestamp payload: {raw!r}")
 
     def _require_connection(self) -> None:
         if not self._is_connected_impl():
-            raise RuntimeError('IBKR is not connected.')
+            raise RuntimeError("IBKR is not connected.")

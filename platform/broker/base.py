@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable
 
 from platform.models import OrderIntent, OrderSide, OrderType
 
@@ -135,3 +136,13 @@ class BrokerAdapter(ABC):
     @abstractmethod
     def flatten_all(self) -> None:
         """Cancel all open orders and close all positions."""
+
+    def add_disconnect_listener(self, listener: Callable[[str], None]) -> None:
+        """Register a best-effort callback for transport disconnect events."""
+
+        return None
+
+    def set_runtime_connection_active(self, active: bool) -> None:
+        """Mark whether the connection should be treated as trade-safe by the runtime."""
+
+        return None

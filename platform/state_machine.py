@@ -15,9 +15,9 @@ class InvalidStateTransitionError(RuntimeError):
 
 VALID_TRANSITIONS: dict[RuntimeState, set[RuntimeState]] = {
     RuntimeState.STARTING: {RuntimeState.RECONCILING},
-    RuntimeState.RECONCILING: {RuntimeState.READY, RuntimeState.HALTED},
-    RuntimeState.READY: {RuntimeState.TRADING, RuntimeState.HALTED, RuntimeState.SHUTTING_DOWN},
-    RuntimeState.TRADING: {RuntimeState.READY, RuntimeState.HALTED, RuntimeState.SHUTTING_DOWN},
+    RuntimeState.RECONCILING: {RuntimeState.READY, RuntimeState.HALTED, RuntimeState.SHUTTING_DOWN},
+    RuntimeState.READY: {RuntimeState.RECONCILING, RuntimeState.TRADING, RuntimeState.HALTED, RuntimeState.SHUTTING_DOWN},
+    RuntimeState.TRADING: {RuntimeState.RECONCILING, RuntimeState.READY, RuntimeState.HALTED, RuntimeState.SHUTTING_DOWN},
     RuntimeState.HALTED: {RuntimeState.READY, RuntimeState.SHUTTING_DOWN},
     RuntimeState.SHUTTING_DOWN: set(),
 }

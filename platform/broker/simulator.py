@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Callable
 
 from platform.broker.base import AccountSummary, BrokerAdapter, BrokerExecution, BrokerOrder, BrokerPosition, OrderId
 from platform.models.market_data import BarEvent
@@ -33,16 +34,27 @@ class SimulatedBrokerAdapter(BrokerAdapter):
         self._auto_fill = auto_fill
         self._daily_bars = dict(daily_bars or {})
         self._next_order_id = max((int(order_id) for order_id in self._open_orders), default=0) + 1
+        self._disconnect_listeners: list[Callable[[str], None]] = []
+        self._runtime_connection_active = True
+        self._connect_failures: list[Exception] = []
+        self.connect_attempts = 0
         self.submitted_intents: list[OrderIntent] = []
 
     def connect(self) -> None:
+        self.connect_attempts += 1
+        if self._connect_failures:
+            self._connected = False
+            raise self._connect_failures.pop(0)
         self._connected = True
 
     def disconnect(self) -> None:
+        was_connected = self._connected
         self._connected = False
+        if was_connected:
+            self._notify_disconnect('Broker connection closed.')
 
     def is_connected(self) -> bool:
-        return self._connected
+        return self._connected and self._runtime_connection_active
 
     def get_account_summary(self) -> AccountSummary:
         return self._account_summary
@@ -103,8 +115,21 @@ class SimulatedBrokerAdapter(BrokerAdapter):
             self._executions.append(execution)
             self._positions.pop(instrument_id, None)
 
+    def add_disconnect_listener(self, listener: Callable[[str], None]) -> None:
+        self._disconnect_listeners.append(listener)
+
+    def set_runtime_connection_active(self, active: bool) -> None:
+        self._runtime_connection_active = active
+
+    def queue_connect_failures(self, failures: list[Exception | str]) -> None:
+        for failure in failures:
+            self._connect_failures.append(failure if isinstance(failure, Exception) else RuntimeError(str(failure)))
+
     def set_connected(self, connected: bool) -> None:
+        was_connected = self._connected
         self._connected = connected
+        if was_connected and not connected:
+            self._notify_disconnect('Broker connection lost.')
 
     def set_account_summary(self, summary: AccountSummary) -> None:
         self._account_summary = summary
@@ -132,6 +157,10 @@ class SimulatedBrokerAdapter(BrokerAdapter):
 
     def replace_executions(self, executions: list[BrokerExecution]) -> None:
         self._executions = list(executions)
+
+    def _notify_disconnect(self, reason: str) -> None:
+        for listener in list(self._disconnect_listeners):
+            listener(reason)
 
     def _fill_order(self, order: BrokerOrder) -> None:
         fill_price = order.limit_price if order.limit_price is not None else self._quotes.get(order.instrument_id, 1.0)
