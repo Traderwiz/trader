@@ -13,7 +13,7 @@ services:
       READ_ONLY_API: no
       TWOFA_TIMEOUT_ACTION: restart
       RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
-      AUTO_RESTART_TIME: 11:59 PM
+      AUTO_RESTART_TIME: 5:50 PM
       EXISTING_SESSION_DETECTED_ACTION: primary
       ALLOW_BLIND_TRADING: "no"
     volumes:
