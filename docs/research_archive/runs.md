@@ -75,3 +75,12 @@ This file is the chronological index of completed research runs. Dates are liste
 - Files created: `platform/broker/reconnect.py`, `tests/integration/test_bootstrap_reconnect.py`, `tests/unit/test_broker_reconnect.py`, `tests/unit/test_daily_runner_state_guard.py`, `tests/unit/test_reconnect_alerts.py`, `tests/unit/test_state_machine_reconnect.py`.
 - Verification: Targeted compile checks plus reconnect unit/integration coverage were added. Full suite verification is required via `/home/gabernardi/trader/.venv/bin/pytest tests/unit tests/integration tests/scenario -v` before release.
 
+## Run 009
+
+- Date: 2026-04-11
+- Description: Moved the paper IB Gateway dependency onto the bot box using the Dockerized gnzsnz/ib-gateway:stable stack and verified traderd against the local loopback API.
+- What was wrong: The container login flow was healthy, but diagnosis was obscured because the image does not include ss. The API listener did come up inside the container and on host 127.0.0.1:4002; the apparent broker failure during validation was caused by overlapping local bootstrap attempts that reused client id 10 and polluted the audit log with duplicate sequence records during verification.
+- What fixed it: Confirmed the Docker socket path end to end (host 4002 -> container 4004 via socat -> container 4002 Gateway API), restarted traderd against 127.0.0.1, cleaned up the duplicate /home/gabernardi/ibgateway and /home/gabernardi/ibc installation from the abandoned non-Docker attempt, and repaired the audit log tail created by the overlapping validation runs so daily bar delivery could complete.
+- Files modified: config/service.yaml, docs/research_archive/runs.md.
+- Verification: Confirmed ib-gateway-paper is running with 127.0.0.1:4002->4004/tcp; confirmed host loopback port 4002 is listening; confirmed http://127.0.0.1:8080/status reports runtime_state = READY; confirmed scripts/run_daily_bars.py completed with status = ok and processed the MES daily bar for 2026-04-10T04:00:00Z.
+- Outcome: Traderd now uses the bot-box-local Docker Gateway on 127.0.0.1:4002. The Windows desktop is no longer required for paper trading.
