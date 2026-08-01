@@ -2,6 +2,10 @@ name: Live Prediction Market Scan
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "prediction-market-scanner/**"
+      - ".github/workflows/prediction-market-scan.yml"
   schedule:
     # 12:15 and 18:15 UTC. GitHub schedules use UTC and may be delayed.
     - cron: "15 12,18 * * *"
@@ -10,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: prediction-market-scan
+  group: prediction-market-scan-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -50,6 +54,7 @@ jobs:
           retention-days: 7
 
       - name: Commit latest report
+        if: github.event_name != 'pull_request'
         working-directory: .
         run: |
           git config user.name "prediction-market-scanner"
