@@ -20,7 +20,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -46,7 +46,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Run live scan
-        run: python scanner.py --config config/scanner.yml --output reports
+        run: python run_scan.py --config config/scanner.yml --output reports
 
       - name: Upload timestamped reports
         uses: actions/upload-artifact@v4
