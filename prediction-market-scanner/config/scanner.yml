@@ -1,0 +1,74 @@
+api_base_url: https://api.elections.kalshi.com/trade-api/v2
+request_timeout_seconds: 30
+page_limit: 1000
+
+filters:
+  maximum_days_to_close: 45
+  minimum_volume_contracts: 1000
+  maximum_spread_cents: 6
+  minimum_ask_depth_contracts: 10
+  allowed_price_min_cents: 8
+  allowed_price_max_cents: 92
+  shortlist_size: 20
+  research_shortlist_size: 5
+
+# This scanner discovers technically tradeable candidates. It does not estimate
+# true outcome probabilities and therefore does not claim an investment edge.
+include_keywords:
+  - inflation
+  - cpi
+  - unemployment
+  - employment
+  - payroll
+  - fed
+  - federal reserve
+  - interest rate
+  - mortgage
+  - gdp
+  - recession
+  - treasury
+  - yield
+  - oil
+  - crude
+  - natural gas
+  - gold
+  - silver
+  - bitcoin
+  - ethereum
+  - s&p
+  - nasdaq
+  - dow
+  - exchange rate
+  - usd
+  - cad
+  - weather
+  - temperature
+  - rainfall
+  - hurricane
+
+exclude_keywords:
+  - election
+  - president
+  - senate
+  - congress
+  - governor
+  - nba
+  - nfl
+  - nhl
+  - mlb
+  - soccer
+  - football
+  - basketball
+  - baseball
+  - hockey
+  - oscar
+  - grammy
+  - movie
+  - celebrity
+
+estimated_wealthsimple_fee:
+  # Conservative placeholder used only to estimate break-even. Every finalist
+  # still requires a live Wealthsimple order preview.
+  percent_of_contract_cost: 0.035
+  minimum_fee_usd: 0.01
+  test_order_usd: 5.00
