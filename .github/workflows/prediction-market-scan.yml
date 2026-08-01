@@ -45,8 +45,8 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/prediction-market-scanner
         run: python -m pytest -q
 
-      - name: Run live scan
-        run: python run_scan.py --config config/scanner.yml --output reports
+      - name: Run live scan with calibration
+        run: python calibrate_scan.py --config config/scanner.yml --output reports
 
       - name: Upload timestamped reports
         uses: actions/upload-artifact@v4
