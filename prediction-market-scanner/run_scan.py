@@ -18,30 +18,27 @@ _ORIGINAL_SESSION = requests.Session
 
 
 class ThrottledSession(_ORIGINAL_SESSION):
-    """Paced public-data session with bounded retry behaviour."""
+    """Paced public-data session with short, bounded retry behaviour."""
 
     def __init__(self) -> None:
         super().__init__()
         retry = Retry(
-            total=3,
-            connect=2,
-            read=2,
-            status=3,
-            backoff_factor=1.0,
-            status_forcelist=(429, 500, 502, 503, 504),
+            total=1,
+            connect=1,
+            read=1,
+            status=0,
+            backoff_factor=0.5,
             allowed_methods=frozenset({"GET"}),
-            respect_retry_after_header=True,
+            respect_retry_after_header=False,
             raise_on_status=False,
         )
         self.mount("https://", HTTPAdapter(max_retries=retry))
         self.mount("http://", HTTPAdapter(max_retries=retry))
-        self.headers.update({"User-Agent": "wealthsimple-prediction-scanner/0.3"})
+        self.headers.update({"User-Agent": "wealthsimple-prediction-scanner/0.4"})
 
     def get(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        time.sleep(float(os.getenv("KALSHI_REQUEST_DELAY_SECONDS", "0.60")))
-        response = super().get(*args, **kwargs)
-        response.raise_for_status()
-        return response
+        time.sleep(float(os.getenv("KALSHI_REQUEST_DELAY_SECONDS", "0.75")))
+        return super().get(*args, **kwargs)
 
 
 def fp_to_int(value: Any) -> int:
@@ -75,15 +72,15 @@ def normalise_market(market: dict[str, Any], event: dict[str, Any]) -> dict[str,
 
 
 def fetch_open_event_markets(config: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
-    """Fetch ordinary open events with nested markets.
+    """Fetch a bounded set of ordinary open events with nested markets.
 
-    Unlike the raw /markets feed, /events excludes multivariate combination
-    events. That prevents the first pages from being dominated by sports parlays
-    and lets categories, broker availability, and event titles drive discovery.
+    Shared GitHub-hosted runner IPs can be rate-limited. A 429 after at least
+    one successful page therefore ends the crawl and produces a timestamped
+    partial report instead of waiting until the workflow timeout.
     """
     base_url = config["api_base_url"].rstrip("/")
-    timeout = int(config["request_timeout_seconds"])
-    max_pages = int(os.getenv("KALSHI_MAX_EVENT_PAGES", "10"))
+    timeout = min(int(config["request_timeout_seconds"]), 20)
+    max_pages = int(os.getenv("KALSHI_MAX_EVENT_PAGES", "4"))
     cursor: str | None = None
     page_count = 0
     markets: list[dict[str, Any]] = []
@@ -98,7 +95,15 @@ def fetch_open_event_markets(config: dict[str, Any]) -> tuple[list[dict[str, Any
         }
         if cursor:
             params["cursor"] = cursor
+
         response = session.get(f"{base_url}/events", params=params, timeout=timeout)
+        if response.status_code == 429:
+            if markets:
+                print(f"Kalshi rate-limited page {page_count + 1}; using partial event crawl.")
+                break
+            response.raise_for_status()
+        response.raise_for_status()
+
         payload = response.json()
         events = payload.get("events", [])
         if not isinstance(events, list):
@@ -107,8 +112,6 @@ def fetch_open_event_markets(config: dict[str, Any]) -> tuple[list[dict[str, Any
         for event in events:
             if not isinstance(event, dict):
                 continue
-            # Wealthsimple is a broker integration, so broker-ineligible events
-            # are poor candidates even when they trade directly on Kalshi.
             if event.get("available_on_brokers") is False:
                 continue
             nested = event.get("markets", [])
@@ -123,6 +126,9 @@ def fetch_open_event_markets(config: dict[str, Any]) -> tuple[list[dict[str, Any
         if not cursor:
             break
 
+    if not markets:
+        raise RuntimeError("No broker-eligible open markets were retrieved")
+    print(f"Fetched {page_count} event page(s) and {len(markets)} nested markets.")
     return markets, retrieved_at
 
 
