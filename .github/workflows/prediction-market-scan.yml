@@ -45,6 +45,9 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/prediction-market-scanner
         run: python -m pytest -q
 
+      - name: Run targeted Phase 1 validation
+        run: python phase1_validate.py --config config/scanner.yml --output reports
+
       - name: Run live scan with calibration
         run: python calibrate_scan.py --config config/scanner.yml --output reports
 
