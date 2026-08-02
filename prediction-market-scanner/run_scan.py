@@ -34,7 +34,7 @@ class ThrottledSession(_ORIGINAL_SESSION):
         )
         self.mount("https://", HTTPAdapter(max_retries=retry))
         self.mount("http://", HTTPAdapter(max_retries=retry))
-        self.headers.update({"User-Agent": "wealthsimple-prediction-scanner/0.5"})
+        self.headers.update({"User-Agent": "wealthsimple-prediction-scanner/0.6"})
 
     def get(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         time.sleep(float(os.getenv("KALSHI_REQUEST_DELAY_SECONDS", "0.75")))
@@ -88,6 +88,16 @@ def event_is_relevant(event: dict[str, Any], config: dict[str, Any]) -> bool:
     return calibrated_text_matches(synthetic, config)
 
 
+def is_tradeable_nested_market(market: dict[str, Any]) -> bool:
+    """Return whether a nested Market response is currently tradeable.
+
+    Kalshi list endpoints accept the query filter ``status=open``, but the
+    response-body Market.status enum uses ``active`` for a tradeable market.
+    These are separate enums and must not be compared directly.
+    """
+    return str(market.get("status") or "").lower() == "active"
+
+
 def normalise_market(market: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
     item = dict(market)
     event_title = str(event.get("title") or market.get("title") or "")
@@ -108,8 +118,17 @@ def normalise_market(market: dict[str, Any], event: dict[str, Any]) -> dict[str,
     open_interest = fp_to_int(market.get("open_interest_fp", market.get("open_interest")))
     item["volume"] = max(total_volume, recent_volume, open_interest)
     item["open_interest"] = open_interest
-    item["yes_ask_size"] = fp_to_int(market.get("yes_ask_size_fp", market.get("yes_ask_size")))
-    item["no_ask_size"] = fp_to_int(market.get("no_ask_size_fp", market.get("no_ask_size")))
+
+    yes_bid_size = fp_to_int(market.get("yes_bid_size_fp", market.get("yes_bid_size")))
+    yes_ask_size = fp_to_int(market.get("yes_ask_size_fp", market.get("yes_ask_size")))
+    item["yes_bid_size"] = yes_bid_size
+    item["yes_ask_size"] = yes_ask_size
+
+    # Kalshi's binary book is complementary. A resting YES bid is the liquidity
+    # available to a NO buyer at the NO ask; a resting YES ask is the liquidity
+    # available at the NO bid. There are no dedicated no_*_size fields.
+    item["no_ask_size"] = yes_bid_size
+    item["no_bid_size"] = yes_ask_size
     return item
 
 
@@ -128,6 +147,7 @@ def fetch_open_event_markets(config: dict[str, Any]) -> tuple[list[dict[str, Any
     seen_events: set[str] = set()
     seen_markets: set[str] = set()
     relevant_events = 0
+    skipped_statuses: dict[str, int] = {}
 
     while page_count < max_pages:
         if cursor and cursor in seen_cursors:
@@ -178,7 +198,11 @@ def fetch_open_event_markets(config: dict[str, Any]) -> tuple[list[dict[str, Any
             if not isinstance(nested, list):
                 continue
             for market in nested:
-                if not isinstance(market, dict) or market.get("status") != "open":
+                if not isinstance(market, dict):
+                    continue
+                if not is_tradeable_nested_market(market):
+                    status = str(market.get("status") or "missing").lower()
+                    skipped_statuses[status] = skipped_statuses.get(status, 0) + 1
                     continue
                 ticker = str(market.get("ticker") or "")
                 if not ticker or ticker in seen_markets:
@@ -192,11 +216,14 @@ def fetch_open_event_markets(config: dict[str, Any]) -> tuple[list[dict[str, Any
             break
         cursor = str(next_cursor)
 
+    if skipped_statuses:
+        formatted = ", ".join(f"{key}={value}" for key, value in sorted(skipped_statuses.items()))
+        print(f"Skipped nested markets by response status: {formatted}")
     if not markets:
-        raise RuntimeError("No relevant broker-eligible open markets were retrieved")
+        raise RuntimeError("No relevant broker-eligible active markets were retrieved")
     print(
         f"Fetched {page_count} event page(s), {len(seen_events)} unique events, "
-        f"{relevant_events} relevant events, and {len(markets)} unique nested markets."
+        f"{relevant_events} relevant events, and {len(markets)} unique active nested markets."
     )
     return markets, retrieved_at
 
