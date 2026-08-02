@@ -1,0 +1,73 @@
+name: Live Prediction Market Scan
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "prediction-market-scanner/**"
+      - ".github/workflows/prediction-market-scan.yml"
+  schedule:
+    # 12:15 and 18:15 UTC. GitHub schedules use UTC and may be delayed.
+    - cron: "15 12,18 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prediction-market-scan-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: prediction-market-scanner
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: prediction-market-scanner/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --requirement requirements.txt
+
+      - name: Run unit tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/prediction-market-scanner
+        run: python -m pytest -q
+
+      - name: Run targeted Phase 1 validation
+        run: python phase1_validate.py --config config/scanner.yml --output reports
+
+      - name: Run live scan with calibration
+        run: python calibrate_scan.py --config config/scanner.yml --output reports
+
+      - name: Upload timestamped reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: prediction-market-scan-${{ github.run_number }}
+          path: prediction-market-scanner/reports/
+          retention-days: 7
+
+      - name: Commit latest report
+        if: github.event_name != 'pull_request'
+        working-directory: .
+        run: |
+          git config user.name "prediction-market-scanner"
+          git config user.email "prediction-market-scanner@users.noreply.github.com"
+          git add prediction-market-scanner/reports/
+          if git diff --cached --quiet; then
+            echo "No report changes to commit."
+          else
+            git commit -m "Update live prediction market scan"
+            git push
+          fi
