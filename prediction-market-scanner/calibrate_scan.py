@@ -2,18 +2,32 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import scanner
-from run_scan import ThrottledSession
+from run_scan import (
+    ThrottledSession,
+    calibrated_text_matches,
+    fetch_open_event_markets,
+)
 
 
 def market_text(market: dict[str, Any]) -> str:
-    return " ".join(str(market.get(k, "")) for k in (
-        "ticker", "event_ticker", "title", "subtitle", "yes_sub_title", "no_sub_title", "rules_primary"
-    )).lower()
+    return " ".join(
+        str(market.get(k, ""))
+        for k in (
+            "ticker",
+            "event_ticker",
+            "title",
+            "subtitle",
+            "yes_sub_title",
+            "no_sub_title",
+            "rules_primary",
+            "category",
+            "series_ticker",
+        )
+    ).lower()
 
 
 def diagnose(markets: list[dict[str, Any]], retrieved_at: str, config: dict[str, Any]) -> tuple[Counter, list[dict[str, Any]]]:
@@ -21,17 +35,11 @@ def diagnose(markets: list[dict[str, Any]], retrieved_at: str, config: dict[str,
     fallback: list[dict[str, Any]] = []
     now = scanner.parse_utc(retrieved_at)
     filters = config["filters"]
-    include = [str(x).lower() for x in config.get("include_keywords", [])]
-    exclude = [str(x).lower() for x in config.get("exclude_keywords", [])]
 
     for market in markets:
         counts["markets_seen"] += 1
-        text = market_text(market)
-        if any(term in text for term in exclude):
-            counts["rejected_excluded_keyword"] += 1
-            continue
-        if include and not any(term in text for term in include):
-            counts["rejected_no_include_keyword"] += 1
+        if not calibrated_text_matches(market, config):
+            counts["rejected_keyword_filter"] += 1
             continue
         counts["passed_keyword_filter"] += 1
 
@@ -87,21 +95,23 @@ def diagnose(markets: list[dict[str, Any]], retrieved_at: str, config: dict[str,
         if yes_depth is None and no_depth is None:
             counts["missing_ask_depth_fields"] += 1
 
-        fallback.append({
-            "ticker": str(market.get("ticker", "")),
-            "title": str(market.get("title", "")),
-            "subtitle": str(market.get("subtitle", "")),
-            "volume": volume,
-            "days": round(days, 2),
-            "yes_bid": yes_bid,
-            "yes_ask": yes_ask,
-            "no_bid": no_bid,
-            "no_ask": no_ask,
-            "yes_spread": yes_spread,
-            "no_spread": no_spread,
-            "yes_depth": yes_depth,
-            "no_depth": no_depth,
-        })
+        fallback.append(
+            {
+                "ticker": str(market.get("ticker", "")),
+                "title": str(market.get("title", "")),
+                "subtitle": str(market.get("subtitle", "")),
+                "volume": volume,
+                "days": round(days, 2),
+                "yes_bid": yes_bid,
+                "yes_ask": yes_ask,
+                "no_bid": no_bid,
+                "no_ask": no_ask,
+                "yes_spread": yes_spread,
+                "no_spread": no_spread,
+                "yes_depth": yes_depth,
+                "no_depth": no_depth,
+            }
+        )
 
     fallback.sort(key=lambda x: (-x["volume"], x["days"]))
     return counts, fallback[:25]
@@ -123,13 +133,15 @@ def write_diagnostics(counts: Counter, fallback: list[dict[str, Any]], output: P
     for key, value in sorted(counts.items()):
         lines.append(f"| `{key}` | {value:,} |")
 
-    lines.extend([
-        "",
-        "## Top relevant markets before strict candidate filtering",
-        "",
-        "| Rank | Ticker | Volume | Days | Yes bid/ask | No bid/ask | Spread Y/N | Depth Y/N | Contract |",
-        "|---:|---|---:|---:|---|---|---|---|---|",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Top relevant markets before strict candidate filtering",
+            "",
+            "| Rank | Ticker | Volume | Days | Yes bid/ask | No bid/ask | Spread Y/N | Depth Y/N | Contract |",
+            "|---:|---|---:|---:|---|---|---|---|---|",
+        ]
+    )
     for i, row in enumerate(fallback, 1):
         lines.append(
             f"| {i} | `{row['ticker']}` | {row['volume']:,} | {row['days']:.1f} | "
@@ -148,7 +160,10 @@ def main() -> int:
 
     config = scanner.load_config(args.config)
     scanner.requests.Session = ThrottledSession
-    markets, retrieved_at = scanner.fetch_open_markets(config)
+    scanner.fetch_open_markets = fetch_open_event_markets
+    scanner.text_matches = calibrated_text_matches
+
+    markets, retrieved_at = fetch_open_event_markets(config)
     counts, fallback = diagnose(markets, retrieved_at, config)
     candidates = scanner.build_candidates(markets, retrieved_at, config)
     scanner.write_reports(candidates, len(markets), retrieved_at, args.output, config)
